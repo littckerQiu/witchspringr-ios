@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           CAP="$DM_ROOT/build/witchspringr/shader_capture"
-          KEYS=$(ls "$CAP" | grep '\.ctl$' | sed -n '${{ matrix.shard }}~8p' | sed 's/\.ctl$//')
+          KEYS=$(ls "$CAP" | grep '\.ctl$' | awk -v s=${{ matrix.shard }} 'NR%8==s' | sed 's/\.ctl$//')
           echo "$(echo "$KEYS" | wc -w) shader keys in this shard"
           IOSOUT="$DM_ROOT/build/ios/dmsh_b" python3 gfx/tools/dmsh_build.py \
             "$CAP" "$DM_ROOT/build/cache/metal_shader_cache" $KEYS 2>&1 | tail -12
