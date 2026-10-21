@@ -211,7 +211,10 @@ static void gfx_settings_boot(void) {
     if (g_gfx_fps == 30) setenv("DM_FPS", "30", 0);
     if (h > 0) { char b[16]; snprintf(b, sizeof b, "%ld", (long)h); setenv("DM_RENDER_HEIGHT", b, 0); }
     if (g_gfx_fx) setenv("DM_UPSCALE", "metalfx", 0);
-    plog("boot: graphics settings: %ld fps, render height %s, MetalFX %s", (long)g_gfx_fps, getenv("DM_RENDER_HEIGHT") ?: "the game's", g_gfx_fx ? "on" : "off");
+    // Diagnostics toggles: the host reads these once at startup (the same flags DM_SVC / DM_IMPORTS on the command line)
+    if ([d boolForKey:@"dm.svc"]) setenv("DM_SVC", "1", 1);
+    if ([d boolForKey:@"dm.imports"]) setenv("DM_IMPORTS", "1", 1);
+    plog("boot: graphics settings: %ld fps, render height %s, MetalFX %s; debug: svc %d imports %d", (long)g_gfx_fps, getenv("DM_RENDER_HEIGHT") ?: "the game's", g_gfx_fx ? "on" : "off", (int)[d boolForKey:@"dm.svc"], (int)[d boolForKey:@"dm.imports"]);
 }
 static void gfx_settings_refresh(void) {
     if (!g_host_up) return;
