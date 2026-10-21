@@ -1,37 +1,81 @@
-# WitchSpring R: Switch shaders (captured on the phone) -> iphoneos metallib -> unsigned IPA, on a cloud macOS runner.
-# No local Mac: the game data stays on the device that produced it; only the capture (release asset "data") is fetched.
+# WitchSpring R: Switch shaders (captured on the phone) -> iphoneos metallib -> unsigned IPA, on cloud macOS runners.
+# No local Mac and no game data on GitHub: only the capture (release asset "data") is fetched; the RomFS never leaves the phone.
 name: Shaders + IPA
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'subset (chain check) | ipa (compile + xcodebuild -> unsigned IPA)'
+        description: 'subset (chain check) | ipa (one job: compile N shaders + xcodebuild) | full (8 shards + IPA)'
         default: subset
       limit:
-        description: 'shader count, 0 = all 40,703 (subset mode ignores 0)'
+        description: 'shader count for subset/ipa, 0 = all 40,703'
         default: '256'
 permissions:
   contents: read
 concurrency:
   group: shaders-${{ github.ref }}
   cancel-in-progress: false
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
+  DM_ROOT: ${{ github.workspace }}/dm-work
+  DM_GAME: witchspringr
+  J: 8
 jobs:
-  shaders:
+  shard:
+    if: inputs.mode == 'full'
     runs-on: macos-26
     timeout-minutes: 350
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: 1
-      DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
-      DM_ROOT: ${{ github.workspace }}/dm-work
-      DM_GAME: witchspringr
-      J: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Tools
+        run: brew install spirv-cross dotnet
+      - name: Capture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DM_ROOT/build/witchspringr" "$DM_ROOT/build/ios"
+          gh release download data --pattern capture.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/capture.zip" -d "$DM_ROOT/build/witchspringr/shader_capture"
+      - name: Translator + chain
+        run: |
+          set -euo pipefail
+          dotnet build -c Release --nologo -v q gfx/tools/dmsh_xlate/dmsh_xlate.csproj -o "$DM_ROOT/build/gfx/dmsh_xlate"
+          python3 gfx/tools/dmsh_chain.py --update-lock
+          python3 gfx/tools/dmsh_chain.py --header
+          python3 gfx/tools/dmsh_chain.py --check-tools
+      - name: Compile shard ${{ matrix.shard }}/8
+        run: |
+          set -euo pipefail
+          CAP="$DM_ROOT/build/witchspringr/shader_capture"
+          KEYS=$(ls "$CAP" | grep '\.ctl$' | sed -n '${{ matrix.shard }}~8p' | sed 's/\.ctl$//')
+          echo "$(echo "$KEYS" | wc -w) shader keys in this shard"
+          IOSOUT="$DM_ROOT/build/ios/dmsh_b" python3 gfx/tools/dmsh_build.py \
+            "$CAP" "$DM_ROOT/build/cache/metal_shader_cache" $KEYS 2>&1 | tail -12
+      - name: Upload libs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msl-${{ matrix.shard }}
+          path: dm-work/build/ios/dmsh_b/b-*
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Tools (xcodegen, spirv-cross, dotnet)
+  single:
+    if: inputs.mode != 'full'
+    runs-on: macos-26
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Tools
         run: brew install xcodegen spirv-cross dotnet
-
-      - name: Capture + product (release asset "data")
+      - name: Capture + product
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -42,22 +86,14 @@ jobs:
           gh release download data --pattern product.zip --dir "$RUNNER_TEMP"
           unzip -q "$RUNNER_TEMP/product.zip" -d "$DM_ROOT/build/witchspringr/product"
           gh release download data --pattern shader_map.tsv --dir "$DM_ROOT/build/witchspringr"
-          echo "capture: $(ls "$DM_ROOT/build/witchspringr/shader_capture" | wc -l) files"
-          echo "product: $(ls "$DM_ROOT/build/witchspringr/product" | wc -l) files"
-
-      - name: Shader translator (dmsh_xlate)
+      - name: Translator + chain
         run: |
           set -euo pipefail
           dotnet build -c Release --nologo -v q gfx/tools/dmsh_xlate/dmsh_xlate.csproj -o "$DM_ROOT/build/gfx/dmsh_xlate"
-
-      - name: Chain lock for this runner's tools
-        run: |
-          set -euo pipefail
           python3 gfx/tools/dmsh_chain.py --update-lock
           python3 gfx/tools/dmsh_chain.py --header
           python3 gfx/tools/dmsh_chain.py --check-tools
-
-      - name: Translate + compile (iphoneos metallib)
+      - name: Compile
         run: |
           set -euo pipefail
           CAP="$DM_ROOT/build/witchspringr/shader_capture"
@@ -66,20 +102,68 @@ jobs:
           if [ "$LIMIT" = 0 ]; then KEYS=""; else KEYS=$(ls "$CAP" | grep '\.ctl$' | sed -n "1,${LIMIT}p" | sed 's/\.ctl$//'); fi
           echo "$(echo "$KEYS" | wc -w) shader keys"
           IOSOUT="$DM_ROOT/build/ios/dmsh_b" python3 gfx/tools/dmsh_build.py \
-            "$CAP" "$DM_ROOT/build/cache/metal_shader_cache" $KEYS 2>&1 | tail -30
-
+            "$CAP" "$DM_ROOT/build/cache/metal_shader_cache" $KEYS 2>&1 | tail -12
       - name: Unsigned IPA
         if: inputs.mode == 'ipa'
         run: |
           set -euo pipefail
           printf 'DM_BUNDLE_ID=dev.dsh.witchspringr\nDM_GAME=witchspringr\n' > ios/local.env
-          bash ios/run.sh ipa 2>&1 | tail -40
-
+          bash ios/run.sh ipa 2>&1 | tail -20
       - name: Upload IPA
         if: inputs.mode == 'ipa' && always()
         uses: actions/upload-artifact@v4
         with:
           name: witchspringr-ipa
+          path: dm-work/run/ios/*.ipa
+          if-no-files-found: warn
+          retention-days: 7
+
+  ipa:
+    needs: shard
+    if: inputs.mode == 'full' && always()
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Tools
+        run: brew install xcodegen
+      - name: Capture + product + libs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DM_ROOT/build/witchspringr" "$DM_ROOT/build/ios" "$DM_ROOT/run/witchspringr"
+          gh release download data --pattern product.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/product.zip" -d "$DM_ROOT/build/witchspringr/product"
+          gh release download data --pattern shader_map.tsv --dir "$DM_ROOT/build/witchspringr"
+          ls "$DM_ROOT/build/witchspringr/product" | head -3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: msl-*
+          merge-multiple: true
+          path: dm-work/build/ios/dmsh_b
+      - name: Count libs
+        run: |
+          set -euo pipefail
+          ls "$DM_ROOT/build/ios/dmsh_b"/*/ | wc -l
+          du -sh "$DM_ROOT/build/ios/dmsh_b"
+      - name: Chain header for this runner (must match the libs)
+        run: |
+          set -euo pipefail
+          brew install dotnet spirv-cross || true
+          dotnet build -c Release --nologo -v q gfx/tools/dmsh_xlate/dmsh_xlate.csproj -o "$DM_ROOT/build/gfx/dmsh_xlate"
+          python3 gfx/tools/dmsh_chain.py --update-lock
+          python3 gfx/tools/dmsh_chain.py --header
+      - name: Unsigned IPA
+        run: |
+          set -euo pipefail
+          printf 'DM_BUNDLE_ID=dev.dsh.witchspringr\nDM_GAME=witchspringr\n' > ios/local.env
+          bash ios/run.sh ipa 2>&1 | tail -30
+      - name: Upload IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: witchspringr-ipa-full
           path: dm-work/run/ios/*.ipa
           if-no-files-found: warn
           retention-days: 7
