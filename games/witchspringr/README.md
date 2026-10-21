@@ -86,6 +86,24 @@ Not done (needs an Apple-silicon Mac, see `PORTING.md` / `ios/README.md`):
   half-copied dump without knowing the tree yet.
 - `workspace.icon` — 1024×1024 PNG from the game's own art, not generated here.
 
+## 着色器（已在手机上抽完）
+
+`engines/unity/shader_extract.py` 需要适配 Unity 2019/2020 的序列化格式（原版只认 manosaba 的 Unity 6 布局），改动已入库：
+
+- pass 里的 `progVertex`/`progFragment`… 是 `m_SubPrograms` 平铺列表（Unity 6 是 `m_PlayerSubPrograms` 分层）；
+- 一个 subprogram 记录里**先像素后顶点**两段控制区首尾相接（subprogram version 201806140），按 `CTL` 魔数逐段取；
+- Unity 2020 的 `ComputeShader` 没有 `uniqueVariants`，暂时跳过并计数。
+
+结果（`work/shader_capture/`，`work/shader_map.tsv`）：
+
+```
+40703 distinct shaders (vertex 20349, fragment 20353, compute 1)
+跳过：compute shader without uniqueVariants ×30，stage -1 ×1
+```
+
+来源是 `data.unity3d` 与 `unity default resources`；抽查的 12 个 Addressables bundle 里没有 `Shader` 对象，所以 5,839 个 bundle 不需要逐个扫。
+注意这是 manosaba（2,752 个）的约 15 倍，Metal 编译阶段的耗时要在 CI 上分摊。
+
 ## Touch input
 
 The WitchSpring series is a mobile-first series, so the shipped Unity player settings may already have the touchscreen enabled.

@@ -72,15 +72,36 @@ def shader(tt, rel):
     ents = [struct.unpack_from('<3i', blob, 4 + 12 * k) for k in range(n)]
     for si, ss in enumerate(tt['m_ParsedForm']['m_SubShaders']):
         for pi, ps in enumerate(ss['m_Passes']):
-            for pk in ('progVertex', 'progFragment', 'progGeometry', 'progHull', 'progDomain', 'progRayTracing'):
-                for tier in ps[pk]['m_PlayerSubPrograms']:
-                    for sp in tier:
-                        off, ln, seg = ents[sp['m_BlobIndex']]
-                        where = f'{rel}\t{name}\t{si}.{pi} {ps["m_Name"]} {pk}'
-                        pc, kws = subprogram(segs[seg], off, ln, sp['m_GpuProgramType'], where)
-                        program_code(pc, where, ' '.join(kws))
+            for pk, nvn in (('progVertex', 0), ('progFragment', 1), ('progGeometry', 2), ('progHull', 3),
+                            ('progDomain', 4), ('progRayTracing', 5)):
+                prog = ps.get(pk)
+                if not prog: continue
+                where = f'{rel}\t{name}\t{si}.{pi} {ps["m_Name"]} {pk}'
+                if 'm_PlayerSubPrograms' in prog:          # Unity 2021+ (manosaba): tiers of subprograms
+                    for tier in prog['m_PlayerSubPrograms']:
+                        for sp in tier:
+                            off, ln, seg = ents[sp['m_BlobIndex']]
+                            pc, kws = subprogram(segs[seg], off, ln, sp['m_GpuProgramType'], where)
+                            program_code(pc, where, ' '.join(kws))
+                elif 'm_SubPrograms' in prog:              # Unity 2019/2020 (witchspringr, subprogram version
+                    for sp in prog['m_SubPrograms']:       # 201806140): one flat list; a record holds the pass's
+                        off, ln, seg = ents[sp['m_BlobIndex']]   # stages one after another (pixel then vertex),
+                        rec = segs[seg][off:off + ln]            # each a control section plus its code area
+                        p = rec.find(CTL_MAGIC)
+                        while p >= 0:
+                            ctl = rec[p:p + 0x880]
+                            if len(ctl) == 0x880 and ctl[:4] == CTL_MAGIC:
+                                code_len = struct.unpack_from('<I', ctl, 0x704)[0]
+                                code = rec[p + 0x880:p + 0x880 + code_len]
+                                if len(code) == code_len:
+                                    add(ctl, code, {'vs': 0, 'ps': 1, 'cs': 5}.get(stage_of(code), -1), where)
+                                else:
+                                    skipped['truncated control section (+0x704)'] += 1
+                            p = rec.find(CTL_MAGIC, p + 0x880)
 
 def compute(tt, rel):
+    if tt['variants'] and 'uniqueVariants' not in tt['variants'][0]['kernels'][0]:
+        skipped['compute shader without uniqueVariants (Unity 2019/2020 layout)'] += 1; return
     for v in tt['variants']:
         for k in v['kernels']:
             for ui, u in enumerate(k['uniqueVariants']):
@@ -91,7 +112,7 @@ nfile = 0
 for dp, dns, fns in os.walk(romfs, followlinks=True):
     dns.sort()
     for fn in sorted(fns):
-        if not (fn.endswith(('.bundle', '.assets')) or fn in ('unity default resources', 'unity_builtin_extra', 'globalgamemanagers') or fn.startswith('level')): continue
+        if not (fn.endswith(('.bundle', '.assets', '.unity3d')) or fn in ('unity default resources', 'unity_builtin_extra', 'globalgamemanagers') or fn.startswith('level')): continue
         p = os.path.join(dp, fn); rel = os.path.relpath(p, romfs); nfile += 1
         for o in UnityPy.load(p).objects:
             if o.type.name == 'Shader': shader(o.read_typetree(), rel)
