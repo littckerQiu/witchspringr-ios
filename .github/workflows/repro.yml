@@ -7,6 +7,9 @@ on:
       watch:
         description: 'DM_WATCH seconds (0 = run until the crash)'
         default: '30'
+      pool_add:
+        description: 'DM_APP_POOL_ADD_MB (MB added to the 3285 MB application pool)'
+        default: '0'
 permissions:
   contents: read
 env:
@@ -41,7 +44,8 @@ jobs:
           DM_SAVE="$DM_ROOT/run/witchspringr/save" DM_TEMP="$DM_ROOT/run/witchspringr/temp" \
           DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" \
           DM_CRASH_MEM="x29+0x10:0x20" \
-          DM_SVC=1 DM_IMPORTS=1 \
+          DM_SVC=1 \
+          DM_APP_POOL_ADD_MB="${{ inputs.pool_add }}" \
           DM_PROBE="sdk:117d70,sdk:117db4,sdk:1249c4" \
           DM_PROBE_DUMP="sdk:1339e0:0x200" \
             ./host/dmhost 2>&1 | tail -200
