@@ -4,6 +4,7 @@
 #include "front.h"
 #include "game.h"
 #include <stdatomic.h>
+#include <strings.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -40,10 +41,37 @@ static void guest_main(void) {
 
 struct dm_flags g_flag;
 uint64_t g_t0_ns;
+// iOS has no way to set the host's environment from the device: a small text file next to the save directory
+// (<DM_SAVE>/../dm.cfg, i.e. Documents/dm.cfg in the app) turns the debug flags on instead. One "key=value" a line:
+// svc, imports, dbg, fs, thr, movie, bootprof. Values 1/on/yes/true.
+static void flags_file(void) {
+    const char *save = getenv("DM_SAVE"); if (!save || !*save) return;
+    char p[1200]; snprintf(p, sizeof p, "%s/../dm.cfg", save);
+    FILE *f = fopen(p, "r"); if (!f) return;
+    char line[256]; int n = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *eq = strchr(line, '='); if (!eq) continue;
+        *eq = 0;
+        char *k = line, *v = eq + 1;
+        while (*k == ' ' || *k == '\t') k++;
+        for (char *e = k + strlen(k); e > k && (e[-1] == ' ' || e[-1] == '\t'); ) *--e = 0;
+        while (*v == ' ' || *v == '\t') v++;
+        for (char *e = v + strlen(v); e > v && (e[-1] == '\r' || e[-1] == '\n' || e[-1] == ' ' || e[-1] == '\t'); ) *--e = 0;
+        int on = !strcmp(v, "1") || !strcasecmp(v, "on") || !strcasecmp(v, "yes") || !strcasecmp(v, "true");
+        int *f_ = !strcmp(k, "svc") ? &g_flag.svc : !strcmp(k, "imports") ? &g_flag.imports : !strcmp(k, "dbg") ? &g_flag.dbg
+                 : !strcmp(k, "fs") ? &g_flag.fs : !strcmp(k, "thr") ? &g_flag.thr : !strcmp(k, "movie") ? &g_flag.movie
+                 : !strcmp(k, "bootprof") ? &g_flag.bootprof : NULL;
+        if (!f_) continue;
+        *f_ = on; n++;
+    }
+    fclose(f);
+    if (n) LOG("dm.cfg: %d debug flag(s) read from %s", n, p);
+}
 static void flags_init(void) {
     g_flag.thr = !!getenv("DM_THR"); g_flag.svc = !!getenv("DM_SVC"); g_flag.fs = !!getenv("DM_FS");
     g_flag.movie = !!getenv("DM_MOVIE"); g_flag.dbg = !!getenv("DM_DBG"); g_flag.imports = !!getenv("DM_IMPORTS");
     g_flag.bootprof = !!getenv("DM_BOOTPROF");
+    flags_file();
 }
 
 // Zero of the boot timeline = process creation (p_starttime from sysctl KERN_PROC_PID, wall clock) converted to the now_ns monotonic base; same on Mac and iOS
