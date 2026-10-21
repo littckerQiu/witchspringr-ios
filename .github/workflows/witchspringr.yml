@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 350
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
+      DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
       DM_ROOT: ${{ github.workspace }}/dm-work
       DM_GAME: witchspringr
     steps:
@@ -46,7 +47,6 @@ jobs:
       - name: Shader translator (dmsh_xlate)
         run: |
           set -euo pipefail
-          export DOTNET_ROOT="$(brew --prefix dotnet)/libexec"
           dotnet build -c Release --nologo -v q gfx/tools/dmsh_xlate/dmsh_xlate.csproj -o "$DM_ROOT/build/gfx/dmsh_xlate"
           ls -l "$DM_ROOT/build/gfx/dmsh_xlate" | head
 
@@ -66,7 +66,7 @@ jobs:
           else
             KEYS=""
           fi
-          IOSOUT="$DM_ROOT/build/ios/dmsh_b" DM_GAME=witchspringr \
+          DOTNET_ROOT="$DOTNET_ROOT" IOSOUT="$DM_ROOT/build/ios/dmsh_b" DM_GAME=witchspringr \
             python3 gfx/tools/dmsh_build.py "$CAP" "$DM_ROOT/build/cache/metal_shader_cache" $KEYS 2>&1 | tail -40
 
       - name: Unsigned IPA
