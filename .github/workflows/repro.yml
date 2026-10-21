@@ -41,7 +41,8 @@ jobs:
           DM_SAVE="$DM_ROOT/run/witchspringr/save" DM_TEMP="$DM_ROOT/run/witchspringr/temp" \
           DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" \
           DM_CRASH_MEM="x29+0x10:0x20" \
-          DM_PROBE="sdk:126414,sdk:12641c,sdk:1249c4,sdk:126450" \
+          DM_SVC=1 DM_IMPORTS=1 \
+          DM_PROBE="sdk:117d70,sdk:117db4,sdk:1249c4" \
           DM_PROBE_DUMP="sdk:1339e0:0x200" \
             ./host/dmhost 2>&1 | tail -200
       - name: Artifacts
