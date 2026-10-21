@@ -1,0 +1,6 @@
+# test binaries
+t_*
+!t_*.c
+!t_*.m
+*.dSYM/
+!t_*.py

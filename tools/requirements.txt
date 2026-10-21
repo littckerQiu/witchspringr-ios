@@ -1,0 +1,4 @@
+# Python packages for the rewriter (tools/patch_nso.py) and the verification tools (verify/): pip install -r tools/requirements.txt
+capstone==5.0.9
+lz4==4.4.5
+unicorn==2.1.4

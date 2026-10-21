@@ -1,0 +1,43 @@
+// The pending-write table across submissions (nvn_mtl.m pend_note / pend_begin / pend_read_x): writes the GPU has not executed yet stay until their
+// submission completes, an inline update reads as its bytes, a GPU copy reads as what its source holds as of that copy (writes recorded before it),
+// nested copies too; a copy without a known source, and an overflow, read as unknown. CPU only: the submission fences are set by hand.
+#include "../nvn/nvn_mtl.m"
+void *front_metal_layer(void) { return NULL; }
+module_t *module_of(const void *p) { (void)p; return NULL; }
+module_t g_mod[MAX_MOD]; int g_nmod;
+void svc_thread_dump(void) {}
+uint64_t now_ns(void) { return bp_now(); }
+static int fail, count;
+#define EXPECT(name, want, got) do { long long w=(want), g=(got); count++; printf("%-78s expected %-10llx → got %-10llx %s\n", name, (unsigned long long)w, (unsigned long long)g, w==g?"✓":"✗"); fail += w != g; } while (0)
+static uint32_t rd(uint64_t a) { uint32_t v = 0xdeadbeef; return pend_read(a, &v, 4) ? v : 0xdeadbeef; }
+int main(void) {
+    static uint32_t mem[64]; for (int i = 0; i < 64; i++) mem[i] = 0x1000 + i;
+    uint64_t A = (uint64_t)(uintptr_t)&mem[0], B = (uint64_t)(uintptr_t)&mem[16], C = (uint64_t)(uintptr_t)&mem[32];
+    static const uint32_t x = 0xaaaa0001, y = 0xbbbb0002;
+    g_fence = 10;                                                    // submission 11 is being recorded
+    pend_note(A, 4, (const uint8_t *)&x, 0);                         // inline update A = x
+    pend_note(B, 4, NULL, A);                                        // GPU copy A → B
+    EXPECT("an inline update reads as its bytes", x, rd(A));
+    EXPECT("a GPU copy reads as its source as of the copy (the update before it)", x, rd(B));
+    g_fence = 11;                                                    // submission 11 committed, 12 recorded
+    pend_note(A, 4, (const uint8_t *)&y, 0);                         // A = y after the copy: B keeps x
+    pend_note(C, 4, NULL, B);                                        // copy B → C
+    EXPECT("the copy into B saw A before the later update", x, rd(B));
+    EXPECT("a copy of a copy follows both", x, rd(C));
+    EXPECT("A reads as the later update", y, rd(A));
+    pend_begin(10);                                                  // 11 and 12 still on the GPU: everything stays
+    EXPECT("submission 11 not complete: its writes stay (pending entries)", 4, g_npend);
+    EXPECT("... and still read", x, rd(B));
+    pend_begin(11);                                                  // 11 complete: its writes are in memory (simulated below), 12's stay
+    mem[0] = x; mem[16] = x;
+    EXPECT("submission 11 complete: only 12's two entries stay", 2, g_npend);
+    EXPECT("A reads as 12's update", y, rd(A));
+    EXPECT("C reads B from memory now", x, rd(C));
+    pend_begin(12);
+    EXPECT("everything complete: no entries", 0, g_npend);
+    pend_note(B, 4, NULL, 0);                                        // a copy whose source is not known
+    EXPECT("a copy without a source reads as unknown", 0xdeadbeef, rd(B));
+    EXPECT("an address no write reaches reads memory", 0x1001, rd(A + 4));
+    pend_begin(g_fence + 1);
+    printf("== %d checks, %d failed ==\n", count, fail); return fail != 0;
+}

@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""c1_guard.py <shader cache b-<version> dir> <output tsv>: lists the shaders whose reads of c1 (the shader's embedded constant segment) are not proven to
+stay inside the span the host's shared c1 banks give them. nvn_mtl.m c1_store packs the c1 of unlisted shaders into 4 MB banks: the data rounded up to
+256 bytes, a 256-byte zero gap, then the next shader's data; a listed shader gets an exclusive 64 KiB of zeros instead (reads past the data return 0, as
+on the Switch). The host takes the list only when its header names its chain version.
+An index is proven when interval arithmetic over the whole expression, following each integer temporary to its one declaration, gives 0 <= index and
+16 * (index + 1) <= the span (_m0 is float4[4096]). Literals, & K, % K, shifts by a constant, min, max, clamp and casts bound a value; unsigned values are
+non-negative; inputs, memory reads, a temporary assigned again (a loop counter, a value merged from branches) and anything not understood are unbounded.
+Every stage counts (vp_c1, fp_c1, cp_c1, ...). After nxnative's c1_guard.py of 7205d7e (seedds, MIT): the first version followed only the last variable
+of an index and took any mask, min or clamp it met as proof (`_1 + (_2 & 3u)` with _1 read from an input passed, masks wider than the data passed), and
+looked only at vertex and pixel shaders. Checked by tools/tests/t_c1_guard.py"""
+import datetime
+import json
+import os
+import re
+import sys
+
+ACCESS = re.compile(r"\b[a-z]+_c1\)\._m0\[([^\]]+)\]")
+DEFINITION = re.compile(r"\b(u?int|u?short|u?long|bool)\s+(_\d+)\s*=\s*([^;]+);")
+ASSIGNMENT = re.compile(r"(?<![\w.])(_\d+)\s*(?:<<|>>|[-+*/%&|^])?=(?!=)|(?<![\w.])(_\d+)\s*(?:\+\+|--)|(?:\+\+|--)\s*(_\d+)\b")
+TOKEN = re.compile(r"\s*(0[xX][0-9a-fA-F]+[uU]?|\d+\.\d*(?:[eE][-+]?\d+)?f?|\d+[uU]?|[A-Za-z_]\w*(?:\.\w+)*|\.\w+|<<|>>|<=|>=|==|!=|&&|\|\||[-+*/%&|^~!?:(),<>\[\]])")
+UNBOUNDED = (None, None)
+CASTS = {"int", "uint", "short", "ushort", "long", "ulong"}
+BINARY = {"||": 1, "&&": 2, "|": 3, "^": 4, "&": 5, "==": 6, "!=": 6, "<": 7, ">": 7, "<=": 7, ">=": 7, "<<": 8, ">>": 8, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10}
+
+
+def known(*values):
+    return all(v is not None for v in values)
+
+
+def tokens(text):
+    """MSL expression tokens; a reinterpreting cast to an unsigned type becomes as_type_u (known non-negative), any other one as_type (unbounded)"""
+    text = re.sub(r"\bas_type<u(?:int|short|long)>\s*\(", "as_type_u(", text)
+    text = re.sub(r"\bas_type<\w+>\s*\(", "as_type(", text)
+    out, i = [], 0
+    while i < len(text):
+        m = TOKEN.match(text, i)
+        if not m:
+            if text[i:].strip():
+                raise ValueError(text[i:])
+            break
+        out.append(m.group(1))
+        i = m.end()
+    return out
+
+
+class Interval:
+    """Bounds (low, high; None = unbounded) of integer expressions in one shader's MSL; each definition is evaluated once, at most 32 deep"""
+
+    def __init__(self, definitions):
+        self.definitions, self.memo, self.depth = definitions, {}, 0
+
+    def variable(self, name):
+        if name in self.memo:
+            return self.memo[name]
+        if name not in self.definitions or self.depth > 32:
+            return UNBOUNDED
+        self.memo[name] = UNBOUNDED   # a cycle is unbounded
+        self.depth += 1
+        kind, text = self.definitions[name]
+        try:
+            value = self.expression(text)
+        finally:
+            self.depth -= 1
+        if kind == "bool":
+            value = (0, 1)
+        elif kind.startswith("u") and not (known(value[0]) and value[0] >= 0):
+            value = (0, None)   # unsigned: a possibly negative value wraps to a huge one
+        self.memo[name] = value
+        return value
+
+    def expression(self, text):
+        try:
+            self.toks, self.pos = tokens(text), 0
+            value = self.ternary()
+            return value if self.pos == len(self.toks) else UNBOUNDED
+        except (ValueError, IndexError, RecursionError):
+            return UNBOUNDED
+
+    def peek(self):
+        return self.toks[self.pos] if self.pos < len(self.toks) else None
+
+    def take(self, want=None):
+        t = self.toks[self.pos]
+        if want is not None and t != want:
+            raise ValueError(t)
+        self.pos += 1
+        return t
+
+    def ternary(self):
+        cond = self.binary(1)
+        if self.peek() != "?":
+            return cond
+        self.take("?")
+        a = self.ternary()
+        self.take(":")
+        b = self.ternary()
+        return (min(a[0], b[0]) if known(a[0], b[0]) else None, max(a[1], b[1]) if known(a[1], b[1]) else None)
+
+    def binary(self, level):
+        left = self.unary()
+        while self.peek() in BINARY and BINARY[self.peek()] >= level:
+            op = self.take()
+            left = self.combine(op, left, self.binary(BINARY[op] + 1))
+        return left
+
+    @staticmethod
+    def combine(op, a, b):
+        (al, ah), (bl, bh) = a, b
+        if op in ("||", "&&", "==", "!=", "<", ">", "<=", ">="):
+            return (0, 1)
+        if op == "+":
+            return (al + bl if known(al, bl) else None, ah + bh if known(ah, bh) else None)
+        if op == "-":
+            return (al - bh if known(al, bh) else None, ah - bl if known(ah, bl) else None)
+        if op == "*":
+            if not known(al, ah, bl, bh):
+                return UNBOUNDED
+            p = [al * bl, al * bh, ah * bl, ah * bh]
+            return (min(p), max(p))
+        if op in ("/", ">>", "<<"):   # by a constant only
+            if not known(al, ah, bl, bh) or bl != bh or bl < 0 or (op == "/" and bl == 0):
+                return UNBOUNDED
+            if op == "<<":
+                return (al << bl, ah << bl)
+            if op == ">>":
+                return (al >> bl, ah >> bl)
+            return (al // bl, ah // bl) if al >= 0 else UNBOUNDED
+        if op == "%":
+            if not known(bl, bh) or bl != bh or bl <= 0:
+                return UNBOUNDED
+            return (0, bl - 1) if known(al) and al >= 0 else (-(bl - 1), bl - 1)
+        if op == "&":   # x & K with K >= 0 lies in [0, K], whatever x is
+            caps = [h for l, h in (a, b) if known(l, h) and l >= 0]
+            return (0, min(caps)) if caps else UNBOUNDED
+        if op in ("|", "^"):
+            if not known(al, ah, bl, bh) or al < 0 or bl < 0:
+                return UNBOUNDED
+            return (0, (1 << max(ah, bh).bit_length()) - 1)
+        return UNBOUNDED
+
+    def unary(self):
+        t = self.peek()
+        if t == "-":
+            self.take()
+            l, h = self.unary()
+            return (-h if known(h) else None, -l if known(l) else None)
+        if t == "+":
+            self.take()
+            return self.unary()
+        if t == "!":
+            self.take()
+            self.unary()
+            return (0, 1)
+        if t in ("~", "*"):   # a complement; a dereference reads memory
+            self.take()
+            self.unary()
+            return UNBOUNDED
+        return self.postfix(self.primary())
+
+    def postfix(self, value):
+        while self.peek() is not None and (self.peek() == "[" or self.peek().startswith(".")):   # an array element or a member: unbounded
+            if self.take() == "[":
+                self.ternary()
+                self.take("]")
+            value = UNBOUNDED
+        return value
+
+    def primary(self):
+        t = self.take()
+        if t == "(":
+            v = self.ternary()
+            self.take(")")
+            return v
+        if re.fullmatch(r"0[xX][0-9a-fA-F]+[uU]?|\d+[uU]?", t):
+            v = int(t.rstrip("uU"), 0)
+            return (v, v)
+        if re.fullmatch(r"\d+\.\d*(?:[eE][-+]?\d+)?f?", t):
+            return UNBOUNDED
+        if not re.fullmatch(r"[A-Za-z_]\w*(?:\.\w+)*", t):
+            raise ValueError(t)
+        if self.peek() == "(":
+            self.take("(")
+            args = []
+            if self.peek() != ")":
+                args.append(self.ternary())
+                while self.peek() == ",":
+                    self.take(",")
+                    args.append(self.ternary())
+            self.take(")")
+            return self.call(t, args)
+        if re.fullmatch(r"_\d+", t):   # a temporary: its declaration is in the same shader
+            save = (self.toks, self.pos)
+            try:
+                return self.variable(t)
+            finally:
+                self.toks, self.pos = save
+        if t in ("true", "false"):
+            return (0, 1)
+        return UNBOUNDED   # inputs, uniforms, vector components, constants not tracked
+
+    @staticmethod
+    def call(name, args):
+        if name == "as_type_u" and len(args) == 1:
+            return (0, None)
+        if name in CASTS and len(args) == 1:
+            l, h = args[0]
+            if name.startswith("u") and not (known(l) and l >= 0):
+                return (0, None)   # a negative value wraps to a huge unsigned one
+            return (l, h)
+        if name == "min" and len(args) == 2:
+            (al, ah), (bl, bh) = args
+            hs = [h for h in (ah, bh) if h is not None]
+            return (min(al, bl) if known(al, bl) else None, min(hs) if hs else None)
+        if name == "max" and len(args) == 2:
+            (al, ah), (bl, bh) = args
+            ls = [l for l in (al, bl) if l is not None]
+            return (max(ls) if ls else None, max(ah, bh) if known(ah, bh) else None)
+        if name == "clamp" and len(args) == 3:
+            return (args[1][0], args[2][1])
+        return UNBOUNDED
+
+
+def c1_span(json_path):
+    """Bytes a shared bank gives the shader's c1: its data rounded up to 256 bytes plus the 256-byte gap (nvn_mtl.m c1_store); None without a c1 in the
+    reflection"""
+    try:
+        with open(json_path, encoding="utf-8") as stream:
+            length = len(json.load(stream).get("c1") or "") // 2
+    except (OSError, ValueError):
+        return None
+    return (length + 255) // 256 * 256 + 256
+
+
+def definitions_of(source):
+    """Integer temporaries written only where they are declared. A name declared more than once with the same text is fine (a vertex shader carries a
+    copy of its main function for the depth fix-up: dmsh_build.py); differing declarations and later assignments leave it out, so it reads as unbounded"""
+    writes, decls, counts = {}, {}, {}
+    for m in ASSIGNMENT.finditer(source):
+        name = m.group(1) or m.group(2) or m.group(3)
+        writes[name] = writes.get(name, 0) + 1
+    for kind, name, text in DEFINITION.findall(source):
+        decls.setdefault(name, set()).add((kind, text.strip()))
+        counts[name] = counts.get(name, 0) + 1
+    return {name: next(iter(d)) for name, d in decls.items() if len(d) == 1 and writes.get(name, 0) == counts[name]}
+
+
+def proven(index, definitions, span):
+    low, high = Interval(definitions).expression(index)
+    return span is not None and known(low, high) and low >= 0 and 16 * (high + 1) <= span
+
+
+def unproven(source, span):
+    """1 when some c1 read of this shader's MSL is not proven inside the span"""
+    accesses = set(ACCESS.findall(source))
+    if not accesses:
+        return 0
+    definitions = definitions_of(source)
+    return int(not all(proven(index, definitions, span) for index in accesses))
+
+
+def main():
+    if len(sys.argv) != 3:
+        raise SystemExit(f"usage: {sys.argv[0]} <shader cache b-<version> dir> <output tsv>")
+    version_dir, output = map(os.path.abspath, sys.argv[1:])
+    keys = []
+    for name in sorted(os.listdir(version_dir)):
+        if not name.endswith(".metal"):
+            continue
+        with open(os.path.join(version_dir, name), encoding="utf-8") as stream:
+            source = stream.read()
+        key = name[:-len("_b.metal")] if name.endswith("_b.metal") else name[:-6]
+        if unproven(source, c1_span(os.path.join(version_dir, key + "_b.json"))):
+            keys.append(key)
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    with open(output, "w", encoding="utf-8", newline="") as stream:
+        stamp = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        stream.write(f"# chain {os.path.basename(version_dir)} {stamp}\n")
+        for key in keys:
+            stream.write(key + "\n")
+    print(f"c1 index not proven bounded: {len(keys)} shaders")
+
+
+if __name__ == "__main__":
+    main()

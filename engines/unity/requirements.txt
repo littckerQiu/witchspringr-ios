@@ -1,0 +1,9 @@
+# Unity shader extraction (shader_extract.py): pip install --no-deps -r engines/unity/requirements.txt
+# --no-deps: UnityPy's texture and audio decoders are not needed to read shaders (Pillow is: UnityPy imports it at load time).
+UnityPy==1.25.4
+attrs==26.1.0
+brotli==1.2.0
+fsspec==2026.9.0
+lz4==4.4.5
+pillow==12.1.1
+tpk_ar==0.2.4

@@ -1,0 +1,23 @@
+.DS_Store
+__pycache__/
+*.pkl
+*.bin
+
+# Game data, keys and console backups never go into git: they are the user's own dumps
+/dump/
+/keys/
+/extracted/
+/sd_backup_*/
+/work/
+/analysis/
+
+# Build output
+/host/dmhost
+/host/dmhost_m3
+/host/*.dSYM/
+/gfx/tools/dmsh_xlate/obj/
+/gfx/tools/dmsh_xlate/bin/
+/tools/game_extract/obj/
+/tools/game_extract/bin/
+/third_party/ryujinx/**/obj/
+/third_party/ryujinx/**/bin/

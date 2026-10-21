@@ -1,0 +1,47 @@
+{
+  "id": "totk",
+  "title": "薩爾達傳說 王國之淚",
+  "version": "1.4.3",
+  "engine": "unknown",
+  "program_id": "0100F2C0115B6000",
+  "modules": ["main", "sdk", "subsdk0"],
+  "main_build_id": "277178b7dba1b6d4949a84778d4abc58",
+  "language": "zh-Hant",
+  "screen": [1920, 1080],
+  "guest_heap_mb": 256,
+  "device_api": "55.15",
+  "depth_mode": "near_is_minus_w",
+  "present_interval": "game",
+  "window_unfocused": "in_focus",
+  "virtual_cores": true,
+  "touch": "pad",
+  "nvn_c2": {"tex": ["0x20", 32], "samp": ["0x568", 128], "img": ["0x120", 8]},
+  "romfs": {
+    "files": {
+      "Event/Movie/Dm_ZN_0033_PreRender.webm": 196302345,
+      "Event/Movie/DmT_OP_GanonWakeUp_PreRender.webm": 132823022,
+      "Event/Movie/Dm_ED_0007_PreRender.webm": 130383898,
+      "Event/Movie/DmT_ZE_Birth_PreRender.webm": 124924881,
+      "Event/Movie/Dm_ZE_0011_PreRender.webm": 97376202,
+      "Event/Movie/Dm_ZE_0010_PreRender.webm": 86297057,
+      "Event/Movie/Dm_ZE_0006_PreRender.webm": 79078746,
+      "Event/Movie/Dm_ZE_0008_PreRender.webm": 74033911
+    },
+    "tree": ".",
+    "tree_files": 304243,
+    "tree_bytes": 17026725026
+  },
+  "save_sync": [],
+  "workspace": {
+    "exefs": "data/switch/totk-1.4.3/ExeFS",
+    "romfs": "data/switch/totk-1.4.3/RomFS",
+    "sysfont": "data/switch/sysfont",
+    "product": "build/totk/product",
+    "shader_map": "build/totk/shader_map.tsv",
+    "shader_capture": "build/totk/shader_capture",
+    "c1": "build/totk/c1_full.tsv",
+    "msl_mac": "build/cache/metal_shader_cache",
+    "msl_ios": "build/ios/dmsh_b",
+    "icon": "data/totk/AppIcon1024.png"
+  }
+}

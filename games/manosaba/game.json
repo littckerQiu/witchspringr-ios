@@ -1,0 +1,43 @@
+{
+  "id": "manosaba",
+  "title": "魔法少女ノ魔女裁判",
+  "version": "2.0.4b",
+  "engine": "unity",
+  "program_id": "01006C5027060000",
+  "modules": ["main", "sdk", "subsdk0"],
+  "main_build_id": "d81467ff90dcee10ab82759d16731cc1",
+  "language": "zh-Hans",
+  "screen": [1920, 1080],
+  "guest_heap_mb": 256,
+  "device_api": "53.311",
+  "depth_mode": "near_is_zero",
+  "nvn_c2": {"tex": ["0x168", 128], "samp": ["0x568", 128], "img": ["0x120", 8]},
+  "romfs": {
+    "files": {
+      "Data/globalgamemanagers": 261988,
+      "Data/globalgamemanagers.assets": 693736,
+      "Data/level0": 19332,
+      "Data/resources.assets": 1457528,
+      "Data/sharedassets0.assets": 7076,
+      "Data/Managed/Metadata/global-metadata.dat": 15809792,
+      "Data/StreamingAssets/aa/catalog.bin": 5779305,
+      "Data/StreamingAssets/aa/settings.json": 851
+    },
+    "tree": "Data",
+    "tree_files": 667,
+    "tree_bytes": 2696520761
+  },
+  "save_sync": ["Saves_v1/GameSave*.nson", "Saves_v1/GameAutoSave*.nson", "Saves_v1/GlobalSave.nson"],
+  "workspace": {
+    "exefs": "data/switch/manosaba-2.0.4b/ExeFS",
+    "romfs": "data/switch/manosaba-2.0.4b/RomFS",
+    "sysfont": "data/switch/sysfont",
+    "product": "build/cache/dm/out/manosaba-2.0.4b-r1-keypage",
+    "shader_map": "build/mano/shader_map.tsv",
+    "shader_capture": "shextract",
+    "c1": "build/mano/c1_full.tsv",
+    "msl_mac": "build/cache/metal_shader_cache",
+    "msl_ios": "build/ios/dmsh_b",
+    "icon": "data/manosaba/AppIcon1024.png"
+  }
+}

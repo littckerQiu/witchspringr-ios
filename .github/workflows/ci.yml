@@ -1,0 +1,38 @@
+# Checks on every push to main and every pull request (after GirlNet's nxnative fork, mac-host.yml of bfc0376, and LASRecomp's ci.yml, both MIT):
+# the Mac host builds for every game in games/ (the Metal 4 host and the Metal 3 one, with libvpx for the VP9 movies), and the tests that need no
+# game files, no keys and no GPU run: the host unit tests (host/tests) and the tool tests (tools/tests). The graphics tests (gfx/tests, Metal 4 and
+# Metal 3 on a real GPU) and the game runs stay local (DEVELOPMENT.md). Nothing is uploaded or published.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:   # a newer push to the same branch or pull request cancels a run still going
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mac:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - name: libvpx
+        run: brew install libvpx
+      - name: Host builds, every game, Metal 4 and Metal 3
+        run: |
+          for g in $(ls games); do
+            [ -f "games/$g/game.json" ] || continue
+            echo "=== $g"; make -C host GAME="$g" dmhost dmhost_m3
+          done
+      - name: Host unit tests
+        run: make -C host/tests run
+      - name: Tool tests
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q --disable-pip-version-check capstone==5.0.9 numpy==2.4.4
+          rc=0; for t in tools/tests/t_*.py; do echo "=== $t"; "$RUNNER_TEMP/venv/bin/python" -I "$t" || rc=1; done; exit $rc

@@ -1,0 +1,81 @@
+# xcodegen project for the iOS app. run.sh build generates Gen/ first (host sources from host/Makefile, the game's modules embedded as code,
+# the product tables, shaders, the app icon) and Gen/dm.xcconfig (header paths, frameworks, link flags, DM_GAME_TITLE).
+name: DmIOS
+options:
+  bundleIdPrefix: ${DM_BUNDLE_ID}
+  deploymentTarget:
+    iOS: "26.0"   # the graphics backend uses Metal 4 (MTL4CommandQueue etc., iOS 26); tools/project_m3.py makes the iOS 18 build
+configFiles:
+  Release: Gen/dm.xcconfig
+  Debug: Gen/dm.xcconfig
+targets:
+  DmIOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Gen/AppAssets.xcassets        # app icon (run.sh: the game's icon from the local workspace; game art is not committed)
+      - path: Settings.bundle         # Settings app page: graphics settings (Sources/main.m) and on-screen log switches (Sources/log_overlay.m)
+        buildPhase: resources
+      - path: Gen/embed.S             # the rewritten game modules, embedded as code sections (tools/gen_embed.py)
+      - path: Gen/dm                  # product tables and the shader stage map (DM_NVN_SHMAP)
+        type: folder
+        buildPhase: resources
+      - path: Gen/msl                 # iOS metallibs + reflection json (DM_MSL_DIR)
+        type: folder
+        buildPhase: resources
+      - path: Gen/src                 # host sources from host/Makefile (tools/gen_build.py)
+      - path: Gen/main/main.c
+        compilerFlags: "-Dmain=dm_main"
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: $(DM_GAME_TITLE)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        UILaunchScreen: {}                         # a declared launch screen: without one iPhones may run the app at a legacy compatibility size (d2r-mobile 21cf97b)
+        UIFileSharingEnabled: true                 # the player copies the game data in with the Files app
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationLandscapeLeft
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        LSApplicationCategoryType: public.app-category.games   # iOS Game Mode is only offered to apps in a game category
+        LSSupportsGameMode: true   # Game Mode from iOS 18.6 / macOS 26 (Apple's Information Property List reference)
+        GCSupportsGameMode: true   # the same for iOS / iPadOS 18.0-18.5, which only read this one (BotWRecomp sets both)
+        ITSAppUsesNonExemptEncryption: false
+        CADisableMinimumFrameDurationOnPhone: true   # without it iPhone caps apps at 60 Hz
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: SceneDelegate
+    entitlements:
+      path: Sources/DmIOS.entitlements
+      properties:   # tools/project_free.py removes these six for a free (personal team) account
+        com.apple.developer.kernel.increased-memory-limit: true
+        com.apple.developer.kernel.extended-virtual-addressing: true
+        com.apple.developer.sustained-execution: true
+        com.apple.developer.icloud-container-identifiers: ["iCloud.${DM_BUNDLE_ID}"]   # iCloud save sync (host/cloud.m)
+        com.apple.developer.icloud-services: [CloudDocuments]
+        com.apple.developer.ubiquity-container-identifiers: ["iCloud.${DM_BUNDLE_ID}"]
+    dependencies:
+      - sdk: Network.framework   # iCloud first sync checks the network (host/cloud.m first_listing_ok)
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      MARKETING_VERSION: "1.0"
+      CURRENT_PROJECT_VERSION: $(DM_BUILD_NUMBER)
+      DM_BUILD_NUMBER: "1"
+      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
+      CODE_SIGN_STYLE: Automatic
+      TARGETED_DEVICE_FAMILY: $(DM_DEVICE_FAMILY)   # "1,2" = iPhone and iPad; DM_DEVICE_FAMILY=1 for iPhone only
+      DM_DEVICE_FAMILY: "1,2"
+      ENABLE_BITCODE: NO
+      GCC_C_LANGUAGE_STANDARD: gnu11
+      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # the host's assembly uses LSE atomics; tools/project_m3.py lowers this for the iOS 18 build
+      CLANG_ENABLE_OBJC_ARC: YES
+      DEBUG_INFORMATION_FORMAT: dwarf
