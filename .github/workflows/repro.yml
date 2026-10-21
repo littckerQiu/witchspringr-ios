@@ -1,0 +1,52 @@
+# Headless reproduction of the game's boot on a cloud macOS runner: no game data needed (the profile games/witchspringr-ci
+# has no RomFS check), the abort we are chasing happens in nninitStartup before the game reads the RomFS.
+name: Repro
+on:
+  workflow_dispatch:
+    inputs:
+      watch:
+        description: 'DM_WATCH seconds (0 = run until the crash)'
+        default: '30'
+permissions:
+  contents: read
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  DM_ROOT: ${{ github.workspace }}/dm-work
+  DM_GAME: witchspringr-ci
+jobs:
+  repro:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: libvpx
+        run: brew install libvpx
+      - name: Host
+        run: make -C host GAME=witchspringr-ci dmhost
+      - name: Product (release asset "data")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DM_ROOT/build/witchspringr" "$DM_ROOT/run/witchspringr/save" "$DM_ROOT/run/witchspringr/temp"
+          gh release download data --pattern product.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/product.zip" -d "$DM_ROOT/build/witchspringr/product"
+          mkdir -p /tmp/empty-romfs /tmp/empty-sysfont
+          : > /tmp/empty_map.tsv
+          ls "$DM_ROOT/build/witchspringr/product" | head -3
+      - name: Run (headless)
+        run: |
+          set -uo pipefail
+          DM_ROOT="$DM_ROOT" DM_ROMFS=/tmp/empty-romfs DM_SYSFONT=/tmp/empty-sysfont \
+          DM_SAVE="$DM_ROOT/run/witchspringr/save" DM_TEMP="$DM_ROOT/run/witchspringr/temp" \
+          DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" \
+          DM_CRASH_MEM="x29+0x10:0x20" \
+            ./host/dmhost 2>&1 | tail -60
+      - name: Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-log
+          path: dm-work/run/witchspringr/**
+          if-no-files-found: warn
+          retention-days: 7

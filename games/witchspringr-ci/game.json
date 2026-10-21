@@ -1,0 +1,53 @@
+{
+  "id": "witchspringr-ci",
+  "title": "WitchSpring R (CI, no game data)",
+  "version": "0",
+  "engine": "unity",
+  "program_id": "010018401EEA8000",
+  "modules": [
+    "main",
+    "sdk",
+    "subsdk0"
+  ],
+  "main_build_id": "2825729412f0903e406f869e05d4686d",
+  "language": "en-US",
+  "screen": [
+    1920,
+    1080
+  ],
+  "guest_heap_mb": 256,
+  "depth_mode": "near_is_zero",
+  "nvn_c2": {
+    "tex": [
+      "0x168",
+      128
+    ],
+    "samp": [
+      "0x568",
+      128
+    ],
+    "img": [
+      "0x120",
+      8
+    ]
+  },
+  "romfs": {
+    "files": {},
+    "tree": null,
+    "tree_files": 0,
+    "tree_bytes": 0
+  },
+  "save_sync": [],
+  "workspace": {
+    "exefs": "data/witchspringr/ExeFS",
+    "romfs": "data/witchspringr/RomFS",
+    "sysfont": "data/switch/sysfont",
+    "product": "build/witchspringr/product",
+    "shader_map": "build/witchspringr/shader_map.tsv",
+    "shader_capture": "build/witchspringr/shader_capture",
+    "c1": "build/witchspringr/c1_full.tsv",
+    "msl_mac": "build/cache/metal_shader_cache",
+    "msl_ios": "build/ios/dmsh_b",
+    "icon": "data/witchspringr/AppIcon1024.png"
+  }
+}
