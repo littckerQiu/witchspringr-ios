@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           CAP="$DM_ROOT/build/witchspringr/shader_capture"
           if [ "${{ inputs.mode }}" = subset ]; then
-            KEYS=$(ls "$CAP" | grep '\.ctl$' | head -n "${{ inputs.limit }}" | sed 's/\.ctl$//')
+            KEYS=$(ls "$CAP" | grep '\.ctl$' | sed -n "1,${{ inputs.limit }}p" | sed 's/\.ctl$//')
           else
             KEYS=""
           fi
