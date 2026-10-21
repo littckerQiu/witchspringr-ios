@@ -1,0 +1,61 @@
+# Rebuild the unsigned IPA after a host fix, reusing the shader libraries of an earlier full run (no 2 h shader compile).
+name: IPA (fast)
+on:
+  workflow_dispatch:
+    inputs:
+      libs_run:
+        description: 'run id that holds the msl-* artifacts (shader libraries)'
+        default: '39569119166'
+permissions:
+  contents: read
+  actions: read
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
+  DM_ROOT: ${{ github.workspace }}/dm-work
+  DM_GAME: witchspringr
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Tools
+        run: brew install xcodegen spirv-cross dotnet
+      - name: Data (product, shader map, shader libs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DM_ROOT/build/witchspringr" "$DM_ROOT/build/ios" "$DM_ROOT/run/witchspringr"
+          gh release download data --pattern product.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/product.zip" -d "$DM_ROOT/build/witchspringr/product"
+          gh release download data --pattern shader_map.tsv --dir "$DM_ROOT/build/witchspringr"
+          gh run download "${{ inputs.libs_run }}" -p 'msl-*' -D "$RUNNER_TEMP/msl"
+          mkdir -p "$DM_ROOT/build/ios/dmsh_b"
+          cp -r "$RUNNER_TEMP/msl"/msl-*/* "$DM_ROOT/build/ios/dmsh_b"/
+          ls "$DM_ROOT/build/ios/dmsh_b"
+      - name: Chain header for this runner
+        run: |
+          set -euo pipefail
+          dotnet build -c Release --nologo -v q gfx/tools/dmsh_xlate/dmsh_xlate.csproj -o "$DM_ROOT/build/gfx/dmsh_xlate"
+          python3 gfx/tools/dmsh_chain.py --update-lock
+          python3 gfx/tools/dmsh_chain.py --header
+          V=$(python3 gfx/tools/dmsh_chain.py); echo "chain V=$V"
+          if [ ! -d "$DM_ROOT/build/ios/dmsh_b/b-$V" ]; then
+            old=$(ls -d "$DM_ROOT/build/ios/dmsh_b"/b-* | head -1); echo "renaming $old -> b-$V"
+            mv "$old" "$DM_ROOT/build/ios/dmsh_b/b-$V"
+          fi
+      - name: Unsigned IPA
+        run: |
+          set -euo pipefail
+          printf 'DM_BUNDLE_ID=dev.dsh.witchspringr\nDM_GAME=witchspringr\n' > ios/local.env
+          bash ios/run.sh ipa 2>&1 | tail -25
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: witchspringr-ipa
+          path: dm-work/run/ios/*.ipa
+          if-no-files-found: warn
+          retention-days: 7
