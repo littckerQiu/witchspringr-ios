@@ -106,6 +106,37 @@ static uint64_t app_pool(void) {
               if (e) LOG("DM_APP_POOL_ADD_MB: application pool %llu MB (Switch 3285 MB %+ld)", (unsigned long long)(v >> 20), add); }
     return v;
 }
+// ---------- Virtual address memory (nn::os::AllocateAddressRegion) ----------
+// The SDK keeps its own "virtual address memory" region, and on a console the loader fills it in. The host never supplied
+// one, so the SDK's region manager was empty: a game that sizes a heap from the whole physical pool then got
+// ResultOutOfAddressSpace (0x1803) and aborted inside nninitStartup (WitchSpring R asks for 3.7 GB; manosaba's Unity 6
+// never calls this path, which is why it had never come up). Hand out 2 MB aligned ranges from the north end of the
+// host's alias region instead: physical pages are still only mapped when the game asks for them (svcMapPhysicalMemory),
+// so the application-pool accounting does not change.
+static uintptr_t g_vam_top;
+HLE_FORCE("_ZN2nn2os21AllocateAddressRegionEPmm",
+          "VAMM: give the SDK its virtual address memory out of the alias region (the host never provided a range)", uint32_t,
+          hle_alloc_address_region, uint64_t *out, size_t size) {
+    size = (size + 0x1fffff) & ~(size_t)0x1fffff;
+    pthread_mutex_lock(&g_alias_lock);
+    if (!g_vam_top) g_vam_top = (uintptr_t)g_alias + g_alias_cap;
+    if (size > g_vam_top - (uintptr_t)g_alias) {
+        pthread_mutex_unlock(&g_alias_lock);
+        LOG("[red] AllocateAddressRegion %zu MB does not fit in the %zu MB alias region", size >> 20, g_alias_cap >> 20);
+        return 0x1803;
+    }
+    g_vam_top -= size;
+    *out = g_vam_top;
+    static int said;
+    if (!said) { said = 1; LOG("virtual address memory: %zu MB at %p (alias region %zu MB)", size >> 20, (void *)g_vam_top, g_alias_cap >> 20); }
+    pthread_mutex_unlock(&g_alias_lock);
+    return 0;
+}
+HLE_FORCE_OPT("_ZN2nn2os17FreeAddressRegionEm", "VAMM free: the host never reuses a handed-out range", uint32_t,
+              hle_free_address_region, size_t addr) {
+    (void)addr; return 0;
+}
+
 static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) n += g_mod[i].size; return (n + 0x1fffff) & ~(size_t)0x1fffff; }
 
 static module_t *mod_named(const char *n) { for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, n)) return &g_mod[i]; return NULL; }
