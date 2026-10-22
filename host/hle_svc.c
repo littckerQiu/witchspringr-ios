@@ -503,12 +503,17 @@ static void dbg_keep(const char *s, uint64_t n) {
     while (k && (d[k - 1] == '\n' || d[k - 1] == '\r')) d[--k] = 0;
     pthread_mutex_unlock(&g_dbg_mu);
 }
-static void abort_context(void) {
+// The guest's own OutputDebugString lines (the last few), printed on any crash: games announce what they are about to do
+// or why they give up there, and a SIGSEGV/SIGBUS dump is much easier to read with them.
+void guest_dbg_dump(void) {
     pthread_mutex_lock(&g_dbg_mu);
     unsigned n = g_dbg_n < DBGN ? g_dbg_n : DBGN;
-    if (n) LOG("Break: the last %u debug output line(s) before it:", n);
+    if (n) LOG("the last %u guest debug output line(s):", n);
     for (unsigned i = g_dbg_n - n; i != g_dbg_n; i++) LOG("  [guest] %s", g_dbg[i % DBGN]);
     pthread_mutex_unlock(&g_dbg_mu);
+}
+static void abort_context(void) {
+    guest_dbg_dump();
     for (int i = 0; i < g_nmod; i++) {
         const uint64_t *ra = module_sym(&g_mod[i], "_ZN2nn4diag6detail24g_AbortImplReturnAddressE");
         if (!ra || !*ra) continue;
