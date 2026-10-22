@@ -1,0 +1,38 @@
+# Game profile of WitchSpring R (Switch, base game v0 = 1.0.0). Bring-up started 2026-10-22 on the user's own dump.
+# Format: see dm/games/README.md
+# Unity 2020.2.1f1, IL2CPP metadata v27, Addressables (5839 bundles + 1 data.unity3d). NPDM declares a 16 MB system resource (META +0x14 = 0x1000000),
+# so virtual address memory is enabled and nninitStartup builds a StandardAllocator heap of (pool - used) instead of calling SetHeapSize.
+#
+
+# ---- Identity ----
+title_id	010018401EEA8000
+program_id	010018401EEA8000
+
+# ---- App ----
+name	WitchSpring R
+ipa	WitchSpringR.ipa
+app_category	public.app-category.role-playing-games
+
+# ---- Versions ----
+build	0	0	main=2825729412f0903e406f869e05d4686d	subsdk0=220d36873cbb6d5dc39a9a37127ea80d	sdk=a5cb2175cad2ca2afdd4c13577dbd079
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+# load order as on Horizon: main, subsdk*, sdk
+modules	main subsdk0 sdk
+romfs_marker	Data
+zip_store	.bundle:.resource:.unity3d
+
+# ---- Memory ----
+# VAMM path: the game asks for a heap of (pool - images) = 3.69 GB with a 3797 MB pool, which does not fit beside the SDK's ~1 GB address-region node area
+# in a phone-sized alias region (5.4 GB). Two levers, both from docs/agents/03-bringup.md:
+#  1. the node area is cut from 1 GB to 62 MB for this sdk build (patch_nso.py CUTS, sdk+0x134778: mov w8,#0x3fe00000 -> #0x3e00000);
+#  2. the reported pool is 2.5 GB, so the heap request shrinks to ~2.4 GB (only nninitStartup reads the pool; the host does not enforce it).
+# Block: 256 MB prefix + 3.5 GB alias + 256 MB stack + ~1 GB heap = 5 GB, the total proven on a phone.
+mem_reserve	0x140000000
+mem_alias	0xE0000000
+mem_stack	0x10000000
+app_pool	0x9C400000
+sys_resource	0x1000000
+mem_used	0x6C00000
