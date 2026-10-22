@@ -63,10 +63,14 @@ jobs:
             $GD/shader_map.tsv $GD/shader_facts.tsv $GD/shader_pairs.tsv 2>&1 | tail -25
           wc -l $GD/shader_map.tsv $GD/shader_facts.tsv $GD/shader_pairs.tsv
           ls /tmp/pkg | head
-      - name: Chain header
+      - name: Chain header (re-lock the tools the runner actually has)
+        env:
+          DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
         run: |
-          set -euo pipefail
+          set -uo pipefail
           cd /tmp/nx
+          export PATH="/tmp/spvc/b:$PATH"
+          /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --update-lock 2>&1 | tail -6 || true
           /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3
           cat dm/games/$DM_GAME/dmsh_chain.h
       - name: iOS shader libraries (dmsh_build)
