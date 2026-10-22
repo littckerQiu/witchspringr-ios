@@ -38,6 +38,10 @@ jobs:
           gh release download data --repo littckerQiu/witchspringr-data --pattern exefs.zip --dir /tmp/data
           unzip -q /tmp/data/exefs.zip -d /tmp/data
           ls /tmp/data/ExeFS
+          mkdir -p /tmp/romfs
+          gh release download data --repo littckerQiu/witchspringr-data --pattern 'romfs-*.zip' --dir /tmp/romfsd || true
+          for z in /tmp/romfsd/*.zip; do [ -f "$z" ] && unzip -qo "$z" -d /tmp/romfs && echo "romfs <- $(basename "$z")"; done
+          find /tmp/romfs -type f | wc -l
       - name: Product (rewritten modules)
         run: |
           set -euo pipefail
@@ -68,6 +72,7 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p /tmp/romfs /tmp/work/save /tmp/work/temp
+          echo "romfs files: $(find /tmp/romfs -type f | wc -l)"
           : > /tmp/empty_map.tsv
           DM_ROOT=/tmp/work DM_ROMFS=/tmp/romfs DM_SAVE=/tmp/work/save DM_TEMP=/tmp/work/temp \
           DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" DM_SVC=1 DM_FS=1 \
