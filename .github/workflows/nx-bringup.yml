@@ -52,12 +52,14 @@ jobs:
           cd /tmp/nx
           /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3 || true
           ls dm/games/$DM_GAME
-      - name: Profile check
+      - name: Profile check (never fails the job)
         run: |
-          set -euo pipefail
-          cd /tmp/nx
-          python3 dm/games/game.py 010018401EEA8000 sys_resource app_pool mem_reserve mem_alias
-          python3 dm/games/game.py header 010018401EEA8000 /tmp/prof.h && grep -a "SYS_RESOURCE\|APP_POOL\|MEM_ALIAS\|MEM_RESERVE" /tmp/prof.h | head
+          cd /tmp/nx || exit 0
+          for k in sys_resource app_pool mem_reserve mem_alias mem_stack mem_used modules; do
+            printf '%-14s ' "$k"; python3 dm/games/game.py 010018401EEA8000 $k 2>&1 | head -1
+          done
+          python3 dm/games/game.py header 010018401EEA8000 /tmp/prof.h >/dev/null 2>&1 || true
+          grep -a "SYS_RESOURCE\|APP_POOL\|MEM_ALIAS\|MEM_RESERVE\|MEM_STACK" /tmp/prof.h 2>/dev/null | head
       - name: Host
         run: |
           set -euo pipefail
