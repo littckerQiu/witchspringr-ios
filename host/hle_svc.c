@@ -119,7 +119,17 @@ static uint64_t app_pool(void) {
 // never calls this path, which is why it had never come up). Hand out 2 MB aligned ranges from the north end of the
 // host's alias region instead: physical pages are still only mapped when the game asks for them (svcMapPhysicalMemory),
 // so the application-pool accounting does not change.
+//
+// Off by default now: the address-region manager of the SDK itself works once GetInfo 2/3 report the alias region (it takes
+// the base and size from there in VammManager's constructor, sdk+0x134618), and forcing the public API on top of it left the
+// manager's own range bookkeeping inconsistent -- WitchSpring R reached nnMain and then died in CentralHeap::Free, which
+// freed a block that the heap's [base, base + size) check did not cover because our handout had put it below the base.
+// Build with -DDM_VAMM_FORCE=1 to get the old behaviour back for comparison.
+#ifndef DM_VAMM_FORCE
+#define DM_VAMM_FORCE 0
+#endif
 static uintptr_t g_vam_top, g_vam_used;
+#if DM_VAMM_FORCE
 HLE_FORCE("_ZN2nn2os21AllocateAddressRegionEPmm",
           "VAMM: give the SDK its virtual address memory out of the alias region (the host never provided a range)", uint32_t,
           hle_alloc_address_region, uint64_t *out, size_t size) {
@@ -147,6 +157,7 @@ HLE_FORCE("_ZN2nn2os21AllocateAddressRegionEPmm",
     pthread_mutex_unlock(&g_alias_lock);
     return 0;
 }
+#endif
 HLE_FORCE_OPT("_ZN2nn2os17FreeAddressRegionEm", "VAMM free: the host never reuses a handed-out range", uint32_t,
               hle_free_address_region, size_t addr) {
     (void)addr; return 0;
