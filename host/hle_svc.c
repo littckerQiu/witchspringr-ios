@@ -94,11 +94,9 @@ static void mem_init(void) {
     if (g_as == MAP_FAILED) die("reserve guest AS %#zx", RESERVE);
     // Partition inside the block: 256 MB prefix, alias region, stack region 256 MB, heap the rest
     g_alias = g_as + 0x10000000; g_alias_cap = alias_cap;
-    // Start the alias region on a 1 GB boundary: every region the SDK's manager hands out is aligned by its size, and the
-    // largest alignment is 1 GB, so without this the first big region (the game's StandardAllocator heap) loses up to
-    // 1 GB of the region to alignment slack.
-    { uintptr_t a0 = (uintptr_t)g_alias, a1 = (a0 + 0x3fffffff) & ~(uintptr_t)0x3fffffff;
-      if (a1 > a0 && a1 - a0 < g_alias_cap) { g_alias_cap -= a1 - a0; g_alias = (uint8_t *)a1; } }
+    // (The alias start was briefly rounded up to 1 GB here so the first big region would not lose alignment slack; that made
+    // the SDK's own AddressRegionManager run into its bookkeeping and trap at sdk+0x134fcc, so it is gone again. The
+    // remaining work on this path is in the notes of docs/PORT-NOTES.md.)
     g_stack = g_alias + g_alias_cap; g_stack_cap = 0x10000000;
     g_heap  = g_stack + g_stack_cap; g_heap_cap  = RESERVE - (size_t)(g_heap - g_as);
     LOG("guest AS %p +%#llx  heap %p alias %p stack %p", g_as, (unsigned long long)RESERVE, g_heap, g_alias, g_stack);
