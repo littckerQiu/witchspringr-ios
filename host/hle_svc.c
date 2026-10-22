@@ -64,6 +64,8 @@ static int alias_phys(uint8_t *a, size_t size, int map, size_t limit_pages) {
     return 0;
 }
 
+static int alias_demand_page(void *addr, int is_write, void *uc);   // defined after image_bytes
+
 static void mem_init(void) {
     if (g_as) return;
     size_t alias_cap = TARGET_OS_IPHONE ? 0xC0000000ull : 0x100000000ull;
@@ -138,6 +140,27 @@ HLE_FORCE_OPT("_ZN2nn2os17FreeAddressRegionEm", "VAMM free: the host never reuse
 }
 
 static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) n += g_mod[i].size; return (n + 0x1fffff) & ~(size_t)0x1fffff; }
+
+// A virtual address region handed out by nn::os::AllocateAddressRegion is only address space; on the console the pages are
+// backed when the SDK asks for physical memory. Some guest code writes into a fresh region first (WitchSpring R's global
+// constructors fill a 1 MB block straight after nninitStartup), which on the host is an unmapped PROT_NONE page: SIGBUS.
+// Back the page on demand with the same application-pool accounting svcMapPhysicalMemory uses.
+static int alias_demand_page(void *addr, int is_write, void *uc) {
+    (void)is_write; (void)uc;
+    uintptr_t a = (uintptr_t)addr & ~(uintptr_t)0xfff;
+    if (a < (uintptr_t)(uintptr_t)g_alias || a >= (uintptr_t)(uintptr_t)g_alias + g_alias_cap) return 0;
+    size_t pool = (size_t)app_pool(), used = image_bytes() + g_heap_cur, limit = pool > used ? (pool - used) / 0x1000 : 0;
+    if (alias_phys((uint8_t *)a, 0x1000, 1, limit)) {
+        static _Atomic int warned;
+        if (atomic_fetch_add(&warned, 1) < 4) LOG("[red] alias page fault at %p: the application pool leaves no room for one more page", (void *)a);
+        return 0;
+    }
+    static _Atomic unsigned long long nfault;
+    unsigned long long k = atomic_fetch_add(&nfault, 1) + 1;
+    if (k <= 4 || !(k & (k - 1))) LOG("alias page fault at %p: backed on demand (%llu so far)", (void *)a, k);
+    return 1;
+}
+
 
 // The nlibsdk heap maps physical pages through nnmem_nlib_physical_alloc (a C function the SDK imports), which validates the
 // range with nn::os::AllocateMemoryPages before calling svcMapPhysicalMemory. On the iPhone that validation fails silently
