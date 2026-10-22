@@ -108,6 +108,7 @@ void hle_signal_system_event(void *g);   // hle_thread.c: signal a service-layer
 void hle_bind_system_event(void *g, int autoclear);   // On a guest thread, bind a guest SystemEvent to a kernel event
 // Page fault hook / hook before the host writes guest memory (crash.c; used for write-protect dirty page tracking)
 void dm_fault_hook_register(int (*fn)(void *addr, int is_write, void *uc));
+void guest_dbg_dump(void);   // hle_svc.c: the guest OutputDebugString ring, printed on any crash
 void dm_yield_top(char *out, size_t n);
 int dm_game_slot_acquire(const char *what);   // game_slot.c: one game at a time on the Mac (waits, or stops an agent's run for the player)   // hle_thread.c: the two threads that yielded most since the last call
 void dm_guest_write_prep_register(void (*fn)(void *addr, size_t len));
