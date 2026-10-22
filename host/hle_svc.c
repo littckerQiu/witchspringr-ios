@@ -139,6 +139,32 @@ HLE_FORCE_OPT("_ZN2nn2os17FreeAddressRegionEm", "VAMM free: the host never reuse
 
 static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) n += g_mod[i].size; return (n + 0x1fffff) & ~(size_t)0x1fffff; }
 
+// The nlibsdk heap maps physical pages through nnmem_nlib_physical_alloc (a C function the SDK imports), which validates the
+// range with nn::os::AllocateMemoryPages before calling svcMapPhysicalMemory. On the iPhone that validation fails silently
+// (Result 0x1003, no svc is ever made) and the SDK aborts in nninitStartup; on the Mac the same code works. Map the pages
+// here with the same bookkeeping as svcMapPhysicalMemory, so both platforms behave alike and a failure is logged with its cause.
+HLE_FORCE("nnmem_nlib_physical_alloc", "nlibsdk heap physical pages: map them in the alias region (the SDK's own path fails on iOS)",
+          uint32_t, hle_nlib_phys_alloc, uint64_t addr, size_t size, uint32_t flags) {
+    uint64_t a = addr & ~0xfffull;
+    if (!size) return 0;
+    size_t n = (size_t)(((addr + size + 0xfff) & ~0xfffull) - a);
+    if (a < (uint64_t)(uintptr_t)g_alias || a + n > (uint64_t)(uintptr_t)g_alias + g_alias_cap) {
+        LOG("[red] nlib physical alloc %p+%#zx is outside the alias region %p+%#zx", (void *)(uintptr_t)a, n, (void *)g_alias, g_alias_cap);
+        return 0xD401;
+    }
+    size_t pool = (size_t)app_pool(), used = image_bytes() + g_heap_cur, limit = pool > used ? (pool - used) / 0x1000 : 0;
+    if (alias_phys((uint8_t *)(uintptr_t)a, n, 1, limit)) {
+        LOG("[red] nlib physical alloc %p+%#zx refused: pool %zu MB, images %zu MB, heap %zu MB", (void *)(uintptr_t)a, n, pool >> 20, image_bytes() >> 20, g_heap_cur >> 20);
+        return 0x10801;
+    }
+    LOG("nlib physical alloc %p+%#zx ok (flags %#x)", (void *)(uintptr_t)a, n, flags);
+    return 0;
+}
+HLE_FORCE_OPT("nnmem_nlib_physical_free", "nlibsdk heap: pages stay mapped (the host never reuses them)", uint32_t,
+              hle_nlib_phys_free, uint64_t addr, size_t size) {
+    (void)addr; (void)size; return 0;
+}
+
 static module_t *mod_named(const char *n) { for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, n)) return &g_mod[i]; return NULL; }
 // The SDK's own allocator, called as is: a null return is logged (first 8), since callers in games often do not check it
 HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEmm", "the SDK allocator, logging null returns", void *, hle_stdalloc_allocate, void *self, size_t size, size_t align) {
