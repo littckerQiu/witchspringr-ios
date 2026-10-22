@@ -116,33 +116,38 @@ static uint64_t app_pool(void) {
 // never calls this path, which is why it had never come up). Hand out 2 MB aligned ranges from the north end of the
 // host's alias region instead: physical pages are still only mapped when the game asks for them (svcMapPhysicalMemory),
 // so the application-pool accounting does not change.
-static uintptr_t g_vam_top;
+static uintptr_t g_vam_top, g_vam_used;
 HLE_FORCE("_ZN2nn2os21AllocateAddressRegionEPmm",
           "VAMM: give the SDK its virtual address memory out of the alias region (the host never provided a range)", uint32_t,
           hle_alloc_address_region, uint64_t *out, size_t size) {
     size = (size + 0x1fffff) & ~(size_t)0x1fffff;
     pthread_mutex_lock(&g_alias_lock);
-    if (!g_vam_top) g_vam_top = (uintptr_t)g_alias + g_alias_cap;
     // The alignment rule of the SDK's own AddressRegionManager (docs/agents/03-bringup.md, the Engage entry): a region is
     // aligned by its size -- 64 KB under 2 MB, 2 MB under 4 MB, 4 MB under 32 MB, 32 MB under 1 GB, 1 GB above that. Unity's
     // low-level virtual allocator asks for its block *plus* alignment slack and computes the usable size as the distance
     // between the returned address and the next boundary; with plain 2 MB alignment that distance came out as 0 for the
     // pool it adds (WitchSpring R: "tlsf_add_pool: Memory size must be between 0x28 and 0x100000000 bytes").
     uintptr_t align = size < 0x200000 ? 0x10000 : size < 0x400000 ? 0x200000 : size < 0x2000000 ? 0x400000 : size < 0x40000000 ? 0x2000000 : 0x40000000;
-    uintptr_t below = (g_vam_top - size) & ~(align - 1);
-    if (below < (uintptr_t)g_alias || size > g_vam_top - (uintptr_t)g_alias) {
+    // Upward from the start of the alias region, not down from its end: when the SDK's nlibsdk CentralHeap wants more
+    // address space it takes another region and then treats it as part of itself, whose blocks are freed with a plain
+    // range check on [base, base + size). Growing downward put the extension *below* the heap, so the first free of a
+    // block in it hit nnmem_nlib_debug_break from CentralHeap::Free (WitchSpring R: freed 0xbba5581f0 with the heap at
+    // 0xbc0000000). Growing upward keeps the extension contiguous with the region before it.
+    uintptr_t at = ((uintptr_t)g_alias + g_vam_used + align - 1) & ~(align - 1);
+    if (at + size > (uintptr_t)g_alias + g_alias_cap) {
         pthread_mutex_unlock(&g_alias_lock);
-        LOG("[red] AllocateAddressRegion %zu MB (alignment %zu MB) does not fit in the %zu MB alias region", size >> 20, align >> 20, g_alias_cap >> 20);
+        LOG("[red] AllocateAddressRegion %zu MB (alignment %zu MB) does not fit: %zu MB used of %zu MB, %zu MB left",
+            size >> 20, align >> 20, g_vam_used >> 20, g_alias_cap >> 20, (g_alias_cap - g_vam_used) >> 20);
         return 0x1803;
     }
-    g_vam_top = below;
-    *out = g_vam_top;
-    { static int said; if (!said) { said = 1; LOG("virtual address memory: %zu MB at %p (alias region %zu MB)", size >> 20, (void *)g_vam_top, g_alias_cap >> 20); } }
+    g_vam_used = at + size - (uintptr_t)g_alias;
+    *out = at;
+    { static int said; if (!said) { said = 1; LOG("virtual address memory: %zu MB at %p (alias region %zu MB)", size >> 20, (void *)at, g_alias_cap >> 20); } }
     // Every request (the first one in full, the rest one line each): a caller that asks for 0 or for more than the alias
     // region has left makes the SDK hand Unity's TLSF allocator a pool it rejects (WitchSpring R: "tlsf_add_pool: Memory
     // size must be between 0x28 and 0x100000000 bytes", then operator new returns 0 and a global constructor writes to 0).
-    { size_t left = g_vam_top - (uintptr_t)g_alias;
-      LOG("AllocateAddressRegion(%#zx) -> %p, %zu MB left in the alias region", size, (void *)(size_t)g_vam_top, left >> 20); }
+    { size_t left = g_alias_cap - g_vam_used;
+      LOG("AllocateAddressRegion(%#zx) -> %p, %zu MB left in the alias region", size, (void *)at, left >> 20); }
     pthread_mutex_unlock(&g_alias_lock);
     return 0;
 }
