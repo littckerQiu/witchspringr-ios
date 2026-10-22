@@ -123,12 +123,19 @@ HLE_FORCE("_ZN2nn2os21AllocateAddressRegionEPmm",
     size = (size + 0x1fffff) & ~(size_t)0x1fffff;
     pthread_mutex_lock(&g_alias_lock);
     if (!g_vam_top) g_vam_top = (uintptr_t)g_alias + g_alias_cap;
-    if (size > g_vam_top - (uintptr_t)g_alias) {
+    // The alignment rule of the SDK's own AddressRegionManager (docs/agents/03-bringup.md, the Engage entry): a region is
+    // aligned by its size -- 64 KB under 2 MB, 2 MB under 4 MB, 4 MB under 32 MB, 32 MB under 1 GB, 1 GB above that. Unity's
+    // low-level virtual allocator asks for its block *plus* alignment slack and computes the usable size as the distance
+    // between the returned address and the next boundary; with plain 2 MB alignment that distance came out as 0 for the
+    // pool it adds (WitchSpring R: "tlsf_add_pool: Memory size must be between 0x28 and 0x100000000 bytes").
+    uintptr_t align = size < 0x200000 ? 0x10000 : size < 0x400000 ? 0x200000 : size < 0x2000000 ? 0x400000 : size < 0x40000000 ? 0x2000000 : 0x40000000;
+    uintptr_t below = (g_vam_top - size) & ~(align - 1);
+    if (below < (uintptr_t)g_alias || size > g_vam_top - (uintptr_t)g_alias) {
         pthread_mutex_unlock(&g_alias_lock);
-        LOG("[red] AllocateAddressRegion %zu MB does not fit in the %zu MB alias region", size >> 20, g_alias_cap >> 20);
+        LOG("[red] AllocateAddressRegion %zu MB (alignment %zu MB) does not fit in the %zu MB alias region", size >> 20, align >> 20, g_alias_cap >> 20);
         return 0x1803;
     }
-    g_vam_top -= size;
+    g_vam_top = below;
     *out = g_vam_top;
     { static int said; if (!said) { said = 1; LOG("virtual address memory: %zu MB at %p (alias region %zu MB)", size >> 20, (void *)g_vam_top, g_alias_cap >> 20); } }
     // Every request (the first one in full, the rest one line each): a caller that asks for 0 or for more than the alias
