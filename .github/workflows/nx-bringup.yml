@@ -63,7 +63,7 @@ jobs:
           : > /tmp/empty_map.tsv
           DM_ROOT=/tmp/work DM_ROMFS=/tmp/romfs DM_SAVE=/tmp/work/save DM_TEMP=/tmp/work/temp \
           DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" DM_SVC=1 DM_FS=1 \
-            timeout 120 /tmp/nx/dm/host/dmhost /tmp/prod > /tmp/work/boot.log 2>&1 || true
+            /tmp/nx/dm/host/dmhost /tmp/prod > /tmp/work/boot.log 2>&1 || true   # DM_WATCH ends it
           echo "---- first 40 lines"; head -40 /tmp/work/boot.log
           echo "---- last 60 lines"; tail -60 /tmp/work/boot.log
           echo "---- red lines"; grep -aF '[RED]' /tmp/work/boot.log | sort | uniq -c | head -20 || true
