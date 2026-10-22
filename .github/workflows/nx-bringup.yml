@@ -20,11 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Python deps (rewriter, shader tools)
-        run: python3 -m pip install --user --quiet lz4 capstone numpy pillow
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install --quiet lz4 capstone numpy pillow
+          /tmp/venv/bin/python -c "import lz4, capstone, numpy; print('deps ok')"
       - name: Upstream source
         run: git clone --depth 1 https://github.com/seedds/nxnative /tmp/nx
       - name: Profile + node-area cut
-        run: python3 nxnative-add/apply.py /tmp/nx
+        run: /tmp/venv/bin/python nxnative-add/apply.py /tmp/nx
       - name: Game files (private data repo)
         env:
           GH_TOKEN: ${{ secrets.DATA_TOKEN }}
@@ -40,13 +44,13 @@ jobs:
           mkdir -p /tmp/prod
           for m in main sdk subsdk0; do
             echo "=== $m"
-            python3 /tmp/nx/dm/tools/patch_nso.py /tmp/data/ExeFS/$m /tmp/prod $m 2>&1 | tail -2
+            /tmp/venv/bin/python /tmp/nx/dm/tools/patch_nso.py /tmp/data/ExeFS/$m /tmp/prod $m 2>&1 | tail -2
           done
       - name: Chain header
         run: |
           set -euo pipefail
           cd /tmp/nx
-          python3 dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3 || true
+          /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3 || true
           ls dm/games/$DM_GAME
       - name: Host
         run: |
