@@ -22,8 +22,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: libvpx
-        run: brew install libvpx
+      - name: libvpx + python deps
+        run: |
+          set -euo pipefail
+          brew install libvpx
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install --quiet lz4 capstone
+          echo "/tmp/venv/bin" >> $GITHUB_PATH
       - name: Game files
         env:
           GH_TOKEN: ${{ secrets.DATA_TOKEN }}
