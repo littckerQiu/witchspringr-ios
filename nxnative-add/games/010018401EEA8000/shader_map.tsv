@@ -1,0 +1,4 @@
+# kind: bring-up  WitchSpring R: no shader tables yet. The 40,703 shaders captured from data.unity3d are kept in the
+# project's old-format capture (work/shader_capture) and are converted to this format in the shader stage; until then the
+# host boots with an empty map (every draw reports a missing shader, which is expected for a bring-up run).
+package	index	stage	dm_ctl_sha16	source
