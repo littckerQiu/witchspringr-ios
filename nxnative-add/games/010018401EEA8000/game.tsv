@@ -24,6 +24,11 @@ modules	main subsdk0 sdk
 romfs_marker	Data
 zip_store	.bundle:.resource:.unity3d
 
+# The shader tools group the packages they write by which file a shader came from; every shader of this game is inside
+# the Unity data archives (Data/), so one group is enough.
+shader_groups	Data/=sa
+shader_note	WitchSpring R shaders (Unity 2020.2.1f1, IL2CPP metadata v27)
+
 # ---- Memory ----
 # VAMM path: the game asks for a heap of (pool - images) = 3.69 GB with a 3797 MB pool, which does not fit beside the SDK's ~1 GB address-region node area
 # in a phone-sized alias region (5.4 GB). Two levers, both from docs/agents/03-bringup.md:
