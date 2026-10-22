@@ -97,6 +97,7 @@ static void mem_init(void) {
     g_stack = g_alias + g_alias_cap; g_stack_cap = 0x10000000;
     g_heap  = g_stack + g_stack_cap; g_heap_cap  = RESERVE - (size_t)(g_heap - g_as);
     LOG("guest AS %p +%#llx  heap %p alias %p stack %p", g_as, (unsigned long long)RESERVE, g_heap, g_alias, g_stack);
+    dm_fault_hook_register(alias_demand_page);
 }
 
 // Application memory pool reported to the game: the 3285 MB a 4 GB Switch gives applications, + DM_APP_POOL_ADD_MB (default 512; may be negative).
