@@ -49,3 +49,34 @@ Next, in order:
    forcing `AllocateAddressRegion` — that is what upstream does (their host never forces it).
 3. If the heap/Unity split cannot be made consistent: give the nlibsdk heap a region big enough that it never extends
    (`app_pool` smaller still, e.g. `-1500`) and see whether `CentralHeap::Free` is then never handed an outside pointer.
+
+## Round 4 findings
+
+- The SDK's VAMM range comes from `GetInfo` id 2 (alias base) and id 3 (alias size): `VammManager::VammManager` (sdk+0x134618)
+  calls `svcGetInfo` for both and stores them; `InitializeIfEnabled` (sdk+0x13469c) then constructs the
+  `AddressRegionManager` with them and bails (disabling VAMM entirely) when either is 0. Our host already answers ids 2/3
+  from `g_alias`/`g_alias_cap`, so the manager does initialise.
+- With the manager running (our forced `AllocateAddressRegion` disabled) and its 1 GB node area cut to 62 MB
+  (`games/witchspringr/rules.py`), the game still reaches `nnMain` and still dies in `CentralHeap::Free`
+  (`sdk+0x119190 = nnmem_nlib_debug_break`), now freeing a pointer 11 MB *above* the heap end (`0x40f5581f0` with the heap
+  at `0x380000000+0x8ea00000`). The caller is `std::string`'s destructor path (`main+0x312500` → `__1::basic_string::append`),
+  so a string buffer that came from another allocator was freed through the nlibsdk heap: allocator metadata has been
+  crossed somewhere, not a plain range-check mistake.
+- Dropping the `nnmem_nlib_physical_alloc` takeover (to let the SDK map its own heap pages on macOS) is **not** an option:
+  the SDK's own path fails on macOS too (`AbortImpl` from sdk+0x95c14, then the heap init at sdk+0x126490). The takeover is
+  needed on both platforms.
+
+## Plan for the next rounds (decided in round 4)
+
+Upstream's host already runs this game through `nninitStartup` → `nnMain` → Unity's job threads → NVN device init without
+any of the memory hacks above, because it never takes the VAMM APIs over. What it lacks for this phone is exactly one thing:
+a **software BC texture decoder** (its `gfx/tex/README.md`: "there is no decompression path"; BC needs A17 Pro or later).
+
+So the endgame is to stop fighting our fork's VAMM and instead:
+
+1. add `third_party/bcdec` (MIT, already in this tree) to the upstream checkout in the `nx-ipa` workflow, and make
+   `gfx/tex/nvn_fmt_mtl.c` / `gfx/nvn/nvn_mtl.m` create an RGBA8 texture and decode the blocks on upload when
+   `MTLDevice.supportsBCTextureCompression` is false (the same substitution this fork does in `gfx/tex/nvn_bcdec.c`);
+2. build the IPA from the upstream tree with our profile (`.github/workflows/nx-ipa.yml` already does tables → iOS
+   metallibs → IPA);
+3. hand that IPA over, with `Documents/romfs` holding the game files (the upstream app reads `Documents/romfs`).
