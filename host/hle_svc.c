@@ -190,7 +190,8 @@ static int alias_demand_page(void *addr, int is_write, void *uc) {
 // range with nn::os::AllocateMemoryPages before calling svcMapPhysicalMemory. On the iPhone that validation fails silently
 // (Result 0x1003, no svc is ever made) and the SDK aborts in nninitStartup; on the Mac the same code works. Map the pages
 // here with the same bookkeeping as svcMapPhysicalMemory, so both platforms behave alike and a failure is logged with its cause.
-#if TARGET_OS_IPHONE   // macOS: the SDK's own path works there, and taking it over hides what the heap really does
+// (Tried without the takeover on macOS: the SDK's own path fails there too -- AbortImpl from sdk+0x95c14, heap init at
+// sdk+0x126490 -- so the takeover stays on both platforms.)
 HLE_FORCE("nnmem_nlib_physical_alloc", "nlibsdk heap physical pages: map them in the alias region (the SDK's own path fails on iOS)",
           uint32_t, hle_nlib_phys_alloc, uint64_t addr, size_t size, uint32_t flags) {
     uint64_t a = addr & ~0xfffull;
@@ -212,7 +213,6 @@ HLE_FORCE_OPT("nnmem_nlib_physical_free", "nlibsdk heap: pages stay mapped (the 
               hle_nlib_phys_free, uint64_t addr, size_t size) {
     (void)addr; (void)size; return 0;
 }
-#endif
 
 static module_t *mod_named(const char *n) { for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, n)) return &g_mod[i]; return NULL; }
 // The SDK's own allocator, called as is: a null return is logged (first 8), since callers in games often do not check it
