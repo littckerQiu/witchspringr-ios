@@ -73,18 +73,28 @@ jobs:
           /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --update-lock 2>&1 | tail -6 || true
           /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3
           cat dm/games/$DM_GAME/dmsh_chain.h
+      - name: Shader caches (so a re-run does not rebuild 44k shaders)
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/msl
+            /tmp/msl_ios
+          key: wsr-shaders-${{ github.run_id }}
+          restore-keys: wsr-shaders-
       - name: iOS shader libraries (dmsh_build)
         env:
           DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
           J: ${{ inputs.jobs }}
         run: |
-          set -uo pipefail
+          set +e                                   # dmsh_build exits non-zero for a single failed shader; one is expected
           cd /tmp/nx
           export PATH="/tmp/spvc/b:$PATH"
           export IOSOUT=/tmp/msl_ios
-          IOSOUT=/tmp/msl_ios /tmp/venv/bin/python dm/gfx/tools/dmsh_build.py /tmp/pkg /tmp/msl 2>&1 | tail -40 || true
-          ls /tmp/msl_ios/b-* 2>/dev/null | head -3
-          echo "metallibs: $(ls /tmp/msl_ios/b-* 2>/dev/null | grep -c _b.metallib)"
+          IOSOUT=/tmp/msl_ios /tmp/venv/bin/python dm/gfx/tools/dmsh_build.py /tmp/pkg /tmp/msl 2>&1 | tail -30
+          n=$(ls /tmp/msl_ios/b-* 2>/dev/null | grep -c "_b.metallib$")
+          echo "metallibs: $n"
+          [ "$n" -gt 1000 ] || { echo "[red] too few metallibs"; exit 1; }
+          exit 0
       - name: IPA
         env:
           DM_DISPLAY_NAME: 'WitchSpring R'
