@@ -49,7 +49,7 @@ jobs:
       - name: Unsigned IPA
         run: |
           set -euo pipefail
-          printf 'DM_BUNDLE_ID=dev.dsh.witchspringr\nDM_GAME=witchspringr\nDM_ENV_FILE=$PWD/ios/witchspringr.env\n' > ios/local.env
+          printf 'DM_BUNDLE_ID=dev.dsh.witchspringr\nDM_GAME=witchspringr\nDM_ENV_FILE=witchspringr.env\n' > ios/local.env
           bash ios/run.sh ipa 2>&1 | tail -25
       - name: Upload
         if: always()
