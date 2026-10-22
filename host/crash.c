@@ -189,6 +189,7 @@ static void on_crash(int sig, siginfo_t *si, void *uc_) {
     }
     funlockfile(stderr);
     fprintf(stderr, "[dm] CRASH sig=%d", sig);
+    guest_dbg_dump();
     off("addr", (uint64_t)si->si_addr); off("pc", uc->uc_mcontext->__ss.__pc); off("lr", uc->uc_mcontext->__ss.__lr);
     fprintf(stderr, " sp=%#llx\n", uc->uc_mcontext->__ss.__sp);
     for (int i = 0; i < 29; i++) fprintf(stderr, "x%d=%#llx%s", i, uc->uc_mcontext->__ss.__x[i], i % 6 == 5 ? "\n" : " ");
