@@ -1,0 +1,68 @@
+# WitchSpring R on the upstream port (seedds/nxnative): product -> host -> headless boot, all on a cloud Mac.
+# Game files live in a PRIVATE repo (littckerQiu/witchspringr-data); the public code repo only holds the profile,
+# the cut and this workflow.
+name: NX bring-up
+on:
+  workflow_dispatch:
+    inputs:
+      watch:
+        description: 'DM_WATCH seconds (0 = until it exits)'
+        default: '25'
+permissions:
+  contents: read
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  DM_GAME: '010018401EEA8000'
+jobs:
+  boot:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Upstream source
+        run: git clone --depth 1 https://github.com/seedds/nxnative /tmp/nx
+      - name: Profile + node-area cut
+        run: python3 nxnative-add/apply.py /tmp/nx
+      - name: Game files (private data repo)
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/data
+          gh release download data --repo littckerQiu/witchspringr-data --pattern exefs.zip --dir /tmp/data
+          unzip -q /tmp/data/exefs.zip -d /tmp/data
+          ls /tmp/data/ExeFS
+      - name: Product (rewritten modules)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/prod
+          for m in main sdk subsdk0; do
+            echo "=== $m"
+            python3 /tmp/nx/dm/tools/patch_nso.py /tmp/data/ExeFS/$m /tmp/prod $m 2>&1 | tail -2
+          done
+      - name: Chain header
+        run: |
+          set -euo pipefail
+          cd /tmp/nx
+          python3 dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3 || true
+          ls dm/games/$DM_GAME
+      - name: Host
+        run: |
+          set -euo pipefail
+          make -C /tmp/nx/dm/host GAME=$DM_GAME dmhost -j4 2>&1 | tail -6
+      - name: Headless boot
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/romfs /tmp/work/save /tmp/work/temp
+          : > /tmp/empty_map.tsv
+          DM_ROOT=/tmp/work DM_ROMFS=/tmp/romfs DM_SAVE=/tmp/work/save DM_TEMP=/tmp/work/temp \
+          DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" DM_SVC=1 DM_FS=1 \
+            /tmp/nx/dm/host/dmhost /tmp/prod 2>&1 | tail -120 || true
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-log
+          path: /tmp/work/**
+          if-no-files-found: warn
+          retention-days: 7
