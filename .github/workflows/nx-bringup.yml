@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Python deps (rewriter, shader tools)
+        run: python3 -m pip install --user --quiet lz4 capstone numpy pillow
       - name: Upstream source
         run: git clone --depth 1 https://github.com/seedds/nxnative /tmp/nx
       - name: Profile + node-area cut
