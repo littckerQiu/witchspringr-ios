@@ -45,7 +45,8 @@ jobs:
           set -euo pipefail
           OUT="$DM_ROOT/build/witchspringr/product"
           mkdir -p "$OUT"
-          for m in main sdk subsdk0; do python3 tools/patch_nso.py /tmp/data/ExeFS/$m "$OUT" $m 2>&1 | tail -1; done
+          for m in main sdk subsdk0; do python3 tools/patch_nso.py /tmp/data/ExeFS/$m "$OUT" $m --rules games/witchspringr/rules.py 2>&1 | tail -1; done
+          cat "$OUT"/*.cuts.tsv 2>/dev/null | head -5
       - name: Host
         run: make -C host GAME=witchspringr dmhost -j4 2>&1 | tail -3
       - name: Run (headless, real data)
