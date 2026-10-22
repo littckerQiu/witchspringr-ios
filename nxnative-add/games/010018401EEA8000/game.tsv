@@ -30,8 +30,8 @@ zip_store	.bundle:.resource:.unity3d
 #  1. the node area is cut from 1 GB to 62 MB for this sdk build (patch_nso.py CUTS, sdk+0x134778: mov w8,#0x3fe00000 -> #0x3e00000);
 #  2. the reported pool is 2.5 GB, so the heap request shrinks to ~2.4 GB (only nninitStartup reads the pool; the host does not enforce it).
 # Block: 256 MB prefix + 3.5 GB alias + 256 MB stack + ~1 GB heap = 5 GB, the total proven on a phone.
-mem_reserve	0x140000000
-mem_alias	0xE0000000
+mem_reserve	0x160000000
+mem_alias	0x118000000
 mem_stack	0x10000000
 app_pool	0x9C400000
 sys_resource	0x1000000
