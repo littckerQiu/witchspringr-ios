@@ -130,8 +130,12 @@ HLE_FORCE("_ZN2nn2os21AllocateAddressRegionEPmm",
     }
     g_vam_top -= size;
     *out = g_vam_top;
-    static int said;
-    if (!said) { said = 1; LOG("virtual address memory: %zu MB at %p (alias region %zu MB)", size >> 20, (void *)g_vam_top, g_alias_cap >> 20); }
+    { static int said; if (!said) { said = 1; LOG("virtual address memory: %zu MB at %p (alias region %zu MB)", size >> 20, (void *)g_vam_top, g_alias_cap >> 20); } }
+    // Every request (the first one in full, the rest one line each): a caller that asks for 0 or for more than the alias
+    // region has left makes the SDK hand Unity's TLSF allocator a pool it rejects (WitchSpring R: "tlsf_add_pool: Memory
+    // size must be between 0x28 and 0x100000000 bytes", then operator new returns 0 and a global constructor writes to 0).
+    { size_t left = g_vam_top - (uintptr_t)g_alias;
+      LOG("AllocateAddressRegion(%#zx) -> %p, %zu MB left in the alias region", size, (void *)(size_t)g_vam_top, left >> 20); }
     pthread_mutex_unlock(&g_alias_lock);
     return 0;
 }
