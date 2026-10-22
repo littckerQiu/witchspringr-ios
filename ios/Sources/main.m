@@ -214,6 +214,7 @@ static void gfx_settings_boot(void) {
     // Diagnostics toggles: the host reads these once at startup (the same flags DM_SVC / DM_IMPORTS on the command line)
     if ([d boolForKey:@"dm.svc"]) setenv("DM_SVC", "1", 1);
     if ([d boolForKey:@"dm.imports"]) setenv("DM_IMPORTS", "1", 1);
+    if ([d boolForKey:@"dm.dbg"]) setenv("DM_DBG", "1", 1);
     plog("boot: graphics settings: %ld fps, render height %s, MetalFX %s; debug: svc %d imports %d", (long)g_gfx_fps, getenv("DM_RENDER_HEIGHT") ?: "the game's", g_gfx_fx ? "on" : "off", (int)[d boolForKey:@"dm.svc"], (int)[d boolForKey:@"dm.imports"]);
 }
 static void gfx_settings_refresh(void) {
