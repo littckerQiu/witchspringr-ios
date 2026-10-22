@@ -1,0 +1,65 @@
+# Our own host (the fork that has the software BC decoder an A15 iPhone needs) booted headless on a cloud Mac with the
+# real game data, to check the application-pool fix without asking the user to install anything.
+name: Own boot
+on:
+  workflow_dispatch:
+    inputs:
+      watch:
+        description: 'DM_WATCH seconds'
+        default: '40'
+      pool_add:
+        description: 'DM_APP_POOL_ADD_MB'
+        default: '-900'
+permissions:
+  contents: read
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  DM_ROOT: ${{ github.workspace }}/dm-work
+  DM_GAME: witchspringr
+jobs:
+  boot:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: libvpx
+        run: brew install libvpx
+      - name: Game files
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/data /tmp/romfs /tmp/romfsd
+          gh release download data --repo littckerQiu/witchspringr-data --pattern exefs.zip --dir /tmp/data
+          unzip -q /tmp/data/exefs.zip -d /tmp/data
+          gh release download data --repo littckerQiu/witchspringr-data --pattern 'romfs-*.zip' --dir /tmp/romfsd
+          for z in /tmp/romfsd/*.zip; do unzip -qo "$z" -d /tmp/romfs; done
+          echo "romfs files: $(find /tmp/romfs -type f | wc -l)"; ls /tmp/romfs | head -3
+      - name: Product
+        run: |
+          set -euo pipefail
+          OUT="$DM_ROOT/build/witchspringr/product"
+          mkdir -p "$OUT"
+          for m in main sdk subsdk0; do python3 tools/patch_nso.py /tmp/data/ExeFS/$m "$OUT" $m 2>&1 | tail -1; done
+      - name: Host
+        run: make -C host GAME=witchspringr dmhost -j4 2>&1 | tail -3
+      - name: Run (headless, real data)
+        run: |
+          set -uo pipefail
+          mkdir -p "$DM_ROOT/run/witchspringr/save" "$DM_ROOT/run/witchspringr/temp" /tmp/empty-sysfont
+          : > /tmp/empty_map.tsv
+          DM_ROOT="$DM_ROOT" DM_ROMFS=/tmp/romfs DM_SYSFONT=/tmp/empty-sysfont \
+          DM_SAVE="$DM_ROOT/run/witchspringr/save" DM_TEMP="$DM_ROOT/run/witchspringr/temp" \
+          DM_NVN_SHMAP=/tmp/empty_map.tsv DM_WATCH="${{ inputs.watch }}" \
+          DM_SVC=1 DM_FS=1 DM_APP_POOL_ADD_MB="${{ inputs.pool_add }}" \
+            ./host/dmhost > "$DM_ROOT/boot.log" 2>&1 || true
+          echo "---- head"; head -25 "$DM_ROOT/boot.log"
+          echo "---- tail"; tail -40 "$DM_ROOT/boot.log"
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: own-boot-log
+          path: dm-work/boot.log
+          if-no-files-found: warn
+          retention-days: 7
