@@ -31,7 +31,41 @@ entry = """  # WitchSpring R v0 sdk (16 MB system resource -> virtual address me
   ],
 """
 anchor = "CUTS = {\n"
-assert anchor in s and 'a5cb2175cad2ca2afdd4c13577dbd079' not in s
-s = s.replace(anchor, anchor + entry, 1)
-p.write_text(s)
-print('CUTS entry added to', p)
+if 'a5cb2175cad2ca2afdd4c13577dbd079' in s:
+    print('CUTS entry already present in', p)
+else:
+    assert anchor in s
+    s = s.replace(anchor, anchor + entry, 1)
+    p.write_text(s)
+    print('CUTS entry added to', p)
+
+# Give the host a fallback when the Metal device cannot create a residency set. GitHub's headless macOS runners
+# (paravirtualised GPU) fail `newResidencySetWithDescriptor`, and the host aborts before it ever presents a frame, so
+# the whole graphics bring-up would be untestable in CI. Real devices keep the normal path; DM_MTL_NO_RESIDENCY=1
+# skips the set, and a failure to create it degrades instead of aborting.
+p = nx / 'dm' / 'gfx' / 'nvn' / 'nvn_mtl.m'
+orig = p.read_text()
+if 'DM_MTL_NO_RESIDENCY' in orig:
+    print('residency fallback already present in', p)
+else:
+    s = orig
+    s = s.replace("""static void res_add_at(id<MTLResource> r, int line) {
+    if (!r) return;""", """static void res_add_at(id<MTLResource> r, int line) {
+    if (!r || !g_res) return;""", 1)
+    s = s.replace("""static void res_remove(id<MTLResource> r) {
+    if (!r) return;""", """static void res_remove(id<MTLResource> r) {
+    if (!r || !g_res) return;""", 1)
+    s = s.replace("""static void res_commit(void) {
+    pthread_mutex_lock(&g_res_mu);
+    if (g_res_dirty) {""", """static void res_commit(void) {
+    pthread_mutex_lock(&g_res_mu);
+    if (g_res && g_res_dirty) {""", 1)
+    s = s.replace("""    g_res = [g_dev newResidencySetWithDescriptor:rd error:&re];
+    if (!g_res) MDIE("failed to create the MTLResidencySet");
+    [g_q addResidencySet:g_res];""", """    g_res = getenv("DM_MTL_NO_RESIDENCY") ? nil : [g_dev newResidencySetWithDescriptor:rd error:&re];
+    if (!g_res) MLOG("[RED] no MTLResidencySet (%s): running without one (resources become resident implicitly)", getenv("DM_MTL_NO_RESIDENCY") ? "DM_MTL_NO_RESIDENCY" : (re ? re.localizedDescription.UTF8String : "unknown"));
+    else [g_q addResidencySet:g_res];""", 1)
+    s = s.replace("""    [g_q4 addResidencySet:g_res];""", """    if (g_res) [g_q4 addResidencySet:g_res];""", 1)
+    assert s != orig, 'residency patch did not match: dm/gfx/nvn/nvn_mtl.m changed upstream'
+    p.write_text(s)
+    print('nvn_mtl.m: residency-set fallback applied')
