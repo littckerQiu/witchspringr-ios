@@ -12,8 +12,12 @@ prof = pathlib.Path(__file__).resolve().parent / 'games' / '010018401EEA8000' / 
 assert nx.is_dir() and prof.is_file(), 'usage: apply.py <nxnative checkout>'
 dst = nx / 'dm' / 'games' / '010018401EEA8000'
 dst.mkdir(parents=True, exist_ok=True)
-shutil.copy2(prof, dst / 'game.tsv')
-print('profile ->', dst)
+src = prof.parent
+n = 0
+for f in sorted(src.iterdir()):
+    if f.is_file():
+        shutil.copy2(f, dst / f.name); n += 1
+print(f'profile -> {dst} ({n} files)')
 
 # CUTS entry, keyed by this sdk build id
 p = nx / 'dm' / 'tools' / 'patch_nso.py'
