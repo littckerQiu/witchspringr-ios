@@ -37,7 +37,7 @@ jobs:
         env:
           # Pinned: our patches (CUTS entry, residency fallback, BC decode, romfs search) are written against this snapshot.
           # Upstream split patch_nso.py into per-build patch files on 2026-10-23 15:36Z, which moved the CUTS table.
-          UPSTREAM_SHA: f73c1e3ec65c58e16f1e8fb9d9a2bdd1f2f6e0a9
+          UPSTREAM_SHA: f73c1e3ec65c4426996e313dbcfffbcf0760be7b
         run: |
           set -euo pipefail
           git init -q /tmp/nx
