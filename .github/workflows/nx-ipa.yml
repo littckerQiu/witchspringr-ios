@@ -64,15 +64,25 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/prod
           for m in main sdk subsdk0; do /tmp/venv/bin/python /tmp/nx/dm/tools/patch_nso.py /tmp/data/ExeFS/$m /tmp/prod $m 2>&1 | tail -1; done
-      - name: Shader tables (shader_split)
+      - name: Full shader set (scanned from the complete RomFS off-device)
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download data --repo littckerQiu/witchspringr-data --pattern shaders-full.zip --dir /tmp/sf
+          unzip -q /tmp/sf/shaders-full.zip -d /tmp/sf/x
+          rm -rf /tmp/pkg && mv /tmp/sf/x/pkg /tmp/pkg
+          GD=/tmp/nx/dm/games/$DM_GAME
+          cp /tmp/sf/x/tables/shader_map.tsv /tmp/sf/x/tables/shader_facts.tsv /tmp/sf/x/tables/shader_pairs.tsv $GD/
+          wc -l $GD/shader_map.tsv $GD/shader_pairs.tsv
+          ls /tmp/pkg
+      - name: Shader tables
         run: |
           set -euo pipefail
           cd /tmp/nx
           GD=dm/games/$DM_GAME
-          /tmp/venv/bin/python dm/gfx/tools/shader_split.py /tmp/romfs /tmp/data/ExeFS/main /tmp/pkg \
-            $GD/shader_map.tsv $GD/shader_facts.tsv $GD/shader_pairs.tsv 2>&1 | tail -25
-          wc -l $GD/shader_map.tsv $GD/shader_facts.tsv $GD/shader_pairs.tsv
-          ls /tmp/pkg | head
+          test -s $GD/shader_map.tsv || { echo "[red] no shader map"; exit 1; }
+          test -d /tmp/pkg && ls /tmp/pkg | head
       - name: Chain header (re-lock the tools the runner actually has)
         env:
           DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
