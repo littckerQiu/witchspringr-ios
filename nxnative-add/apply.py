@@ -69,3 +69,66 @@ else:
     assert s != orig, 'residency patch did not match: dm/gfx/nvn/nvn_mtl.m changed upstream'
     p.write_text(s)
     print('nvn_mtl.m: residency-set fallback applied')
+
+# ---- Software BC decode for GPUs without BC support (iPhone A15/A16 and earlier) -------------------------------
+# Upstream targets A17 Pro and later; its README says there is no decompression path, and on this phone the first
+# MTLTextureDescriptor with a BC format aborts inside Metal (`invalid pixelFormat (130)` = BC1_RGBA, seen in the device
+# log of 2026-10-23). The decoder and the format table come from our own fork (gfx/tex/nvn_bcdec.c, bcdec MIT).
+import shutil as _sh
+_here = pathlib.Path(__file__).resolve().parent
+_src_tex = _here / 'bc'                     # nvn_bcdec.c / nvn_bcdec.h / bcdec.h staged in this repository
+if _src_tex.is_dir():
+    (_sh.copytree(_src_tex / 'bcdec', nx / 'dm' / 'third_party' / 'bcdec', dirs_exist_ok=True))
+    for _f in ('nvn_bcdec.c', 'nvn_bcdec.h'):
+        _sh.copy2(_src_tex / _f, nx / 'dm' / 'gfx' / 'tex' / _f)
+    print('bc decode: files copied')
+
+p = nx / 'dm' / 'gfx' / 'nvn' / 'nvn_mtl.m'
+orig = p.read_text()
+if 'nvn_bc_decode' in orig:
+    print('bc decode: patch already present in', p)
+else:
+    s = orig
+    # 1) include the decoder next to the other texture headers
+    s = s.replace('#include "nvn_mtl.h"', '#include "nvn_mtl.h"\n#include "../tex/nvn_bcdec.h"', 1)
+    # 2) capability flag, set next to the other device checks in mtl_init
+    s = s.replace('''    if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");''',
+'''    if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
+    // GPUs without BC compressed formats (A15/A16 and earlier; Apple silicon Macs and A17 Pro and later have them):
+    // BC textures are created as RGBA8 and decoded on the CPU at upload (nvn_bcdec.c). Without this Metal aborts the
+    // process in MTLTextureDescriptor validation ("invalid pixelFormat (130)" = BC1_RGBA).
+    g_bc_ok = g_dev.supportsBCTextureCompression ? 1 : 0;
+    if (!g_bc_ok) MLOG("[nvn-mtl] this GPU has no BC compressed formats: BC textures are decoded to RGBA8 on the CPU");''', 1)
+    s = s.replace('static id<MTLResidencySet> g_res;', 'static id<MTLResidencySet> g_res;\nstatic int g_bc_ok = 1;   // set in mtl_init from MTLDevice.supportsBCTextureCompression', 1)
+    # 3) tex_desc: substitute the pixel format of a BC texture when the device cannot sample BC
+    s = s.replace('''    if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf) { RED_ONCE(0, "texture format %#x has no Metal equivalent (first case)", t->d.format); return nil; }''',
+'''    if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf) { RED_ONCE(0, "texture format %#x has no Metal equivalent (first case)", t->d.format); return nil; }
+    if (!g_bc_ok && nvn_fmt_bc(t->d.format)) { uint32_t up; int bpp;   // decode on upload, see pkg_upload_
+        if (nvn_bc_unpacked(t->d.format, &up, &bpp)) { static int n; if (n++ < 8) MLOG("[nvn-mtl] BC texture format %#x -> Metal format %#x, decoded on the CPU (%ux%u levels %u)", t->d.format, up, t->d.width, t->d.height, t->d.levels); pf = up; } }''', 1)
+    # 4) pkg_upload_: force the CPU path for BC and decode into RGBA8 staging
+    s = s.replace('''    int use_gpu = !sparse && g_nvn_deswz_gpu && mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo);''',
+'''    int bcs = !g_bc_ok && nvn_fmt_bc(t->d.format);   // BC without GPU support: decode below (GPU deswizzle keeps the blocks)
+    int use_gpu = !bcs && !sparse && g_nvn_deswz_gpu && mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo);''', 1)
+    s = s.replace('''    id<MTLBuffer> stg = [g_dev newBufferWithLength:total ? total : 16 options:MTLResourceStorageModeShared];''',
+'''    size_t total_bc = 0;
+    if (bcs) for (unsigned l = 0; l < d.mipmapLevelCount; l++) {   // decoded size: w*h*4 per slice/layer
+        uint32_t w = MAX(t->d.width >> l, 1u), h = MAX(t->d.height >> l, 1u), z = t->d.target == 2 ? MAX(t->d.depth >> l, 1u) : 1;
+        total_bc += (size_t)w * h * z * layers * 4; }
+    id<MTLBuffer> stg = [g_dev newBufferWithLength:(bcs ? (total_bc ? total_bc : 16) : (total ? total : 16)) options:MTLResourceStorageModeShared];''', 1)
+    s = s.replace('''            if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }''',
+'''            if (bcs) {   // deswizzle the blocks into a scratch buffer, then decode them into RGBA8 in the staging buffer
+                uint8_t *blk = malloc(pitch * rows * z ? pitch * rows * z : 1);
+                if (!blk) MDIE("BC scratch buffer for %ux%u failed", w, h);
+                if (nvn_deswizzle(&t->d, l, y, src, blk, pitch)) { free(blk); RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
+                for (uint32_t zz = 0; zz < z; zz++)
+                    nvn_bc_decode(t->d.format, blk + (size_t)zz * pitch * rows, pitch, w, h,
+                                  (uint8_t *)stg.contents + off + (size_t)zz * w * 4 * h, (size_t)w * 4);
+                free(blk);
+                off += (size_t)w * 4 * h * z;
+                up_blit_add(stg, off - (size_t)w * 4 * h * z, (size_t)w * 4, (size_t)w * 4 * h, MTLSizeMake(w, h, z), mt, y, l);
+                continue;
+            }
+            if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }''', 1)
+    assert s != orig, 'bc decode patch did not match: nvn_mtl.m changed upstream'
+    p.write_text(s)
+    print('bc decode: nvn_mtl.m patched')
