@@ -123,11 +123,15 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p /tmp/w/data/v0 /tmp/w/build
-          ln -sfn /tmp/romfs /tmp/w/data/v0/RomFS
+          # The app plays from Documents/romfs (the full dump the player copies with the Files app), so the copy packed into
+          # the app is dead weight: 1.58 GiB of the 2.29 GiB IPA. Pack only the marker directory instead; the app then says
+          # "game files not found" when nothing is in Documents rather than half-running from a partial set.
+          mkdir -p /tmp/romfs_min/Data
+          ln -sfn /tmp/romfs_min /tmp/w/data/v0/RomFS
           ln -sfn /tmp/prod /tmp/w/build/patched_v0
           mkdir -p /tmp/w/data/v0 && touch /tmp/w/data/v0/.keep
           cd /tmp/nx
-          W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs MSL_IOS=/tmp/msl_ios AOC= \
+          W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs_min MSL_IOS=/tmp/msl_ios AOC= \
             bash dm/ios/tools/build_ipa.sh /tmp/WitchSpringR.ipa 2>&1 | tail -30 || true
           ls -l /tmp/WitchSpringR.ipa 2>/dev/null || echo "no ipa"
       - name: Upload
