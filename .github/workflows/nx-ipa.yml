@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv /tmp/venv
-          /tmp/venv/bin/pip install --quiet lz4 capstone numpy pillow
+          /tmp/venv/bin/pip install --quiet lz4 capstone numpy pillow fonttools
       - name: Upstream + profile + patches
         run: |
           set -euo pipefail
@@ -97,6 +97,7 @@ jobs:
           exit 0
       - name: IPA
         env:
+          FONT_PY: /tmp/venv/bin/python
           DM_DISPLAY_NAME: 'WitchSpring R'
           DM_APP_VERSION: '1.0'
         run: |
