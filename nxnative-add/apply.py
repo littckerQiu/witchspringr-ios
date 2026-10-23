@@ -168,3 +168,31 @@ else:
     assert old in orig, 'romfs search patch did not match: main.m changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('romfs search: main.m patched')
+
+# ---- Runtime application-pool override ---------------------------------------------------------------
+# APP_POOL is a compile-time constant from the profile. The VAMM path needs it tuned per device (the heap request is
+# pool - images, taken as one contiguous address region; every byte it holds is address space Unity's own pools cannot
+# get), and rebuilding for each value costs a full CI run. DM_APP_POOL_MB=<megabytes> in Documents/env.txt on the device
+# overrides it without a rebuild.
+p = nx / 'dm' / 'host' / 'hle_svc.c'
+orig = p.read_text()
+if 'DM_APP_POOL_MB' in orig:
+    print('app pool override: already present')
+else:
+    old = '#define APP_POOL DM_GAME_APP_POOL   // game profile app_pool (Mario 0xCD500000)'
+    new = '''#define APP_POOL DM_GAME_APP_POOL   // game profile app_pool (Mario 0xCD500000)
+// Bring-up override: DM_APP_POOL_MB=<megabytes> (Documents/env.txt) changes what GetInfo TotalMemory reports and what
+// SetHeapSize and the map accounting accept, without rebuilding. WitchSpring R asks for pool - images as one contiguous
+// virtual address region, so this decides how much of the alias region Unity's pools keep.
+static uint64_t app_pool_bytes(void) {
+    static uint64_t v;
+    if (!v) { const char *e = getenv("DM_APP_POOL_MB");
+              v = e ? (uint64_t)strtoull(e, NULL, 10) << 20 : DM_GAME_APP_POOL;
+              if (e) LOG("DM_APP_POOL_MB: application pool %llu MB (profile %llu MB)", (unsigned long long)(v >> 20), (unsigned long long)((uint64_t)APP_POOL >> 20)); }
+    return v;
+}
+#undef APP_POOL
+#define APP_POOL app_pool_bytes()'''
+    assert old in orig, 'app pool override patch did not match: hle_svc.c changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('app pool override: hle_svc.c patched')
