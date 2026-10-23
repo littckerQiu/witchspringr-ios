@@ -132,3 +132,39 @@ else:
     assert s != orig, 'bc decode patch did not match: nvn_mtl.m changed upstream'
     p.write_text(s)
     print('bc decode: nvn_mtl.m patched')
+
+# ---- Find the game files wherever the Files app put them -----------------------------------------------
+# The app only looked at Documents/romfs and <App>/romfs. The user copied the full RomFS into the app's Documents
+# (Files shows it as the app's folder) and the log still said it used the bundle's copy, so the exact folder name under
+# Documents is not one of the two. Search every child (and grandchild) of Documents for the profile's marker and log each
+# candidate, so the next log says what iOS actually shows.
+p = nx / 'dm' / 'ios' / 'Sources' / 'main.m'
+orig = p.read_text()
+if 'romfs candidate' in orig:
+    print('romfs search: patch already present')
+else:
+    old = '''    for (NSString *d in @[[doc stringByAppendingPathComponent:@"romfs"], [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs"]])
+        if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]]) return d;   // only a directory containing the game profile's romfs_marker path counts (Mario: System/Resource, the resource size table)
+    return nil;'''
+    new = '''    // Candidates in order: Documents/romfs, then every child and grandchild of Documents (the Files app shows the app's
+    // Documents as the app's folder, so the game files can arrive under any name and any nesting), then the copy inside
+    // the app bundle. Each candidate is logged with whether it holds the marker, so a "game files not found" report comes
+    // with the list of what was actually there.
+    NSMutableArray<NSString *> *cand = [NSMutableArray arrayWithObject:[doc stringByAppendingPathComponent:@"romfs"]];
+    for (NSString *e in [fm contentsOfDirectoryAtPath:doc error:nil]) {
+        NSString *c = [doc stringByAppendingPathComponent:e];
+        BOOL isdir = NO; if (![fm fileExistsAtPath:c isDirectory:&isdir] || !isdir) continue;
+        [cand addObject:c];
+        for (NSString *e2 in [fm contentsOfDirectoryAtPath:c error:nil])
+            [cand addObject:[c stringByAppendingPathComponent:e2]];
+    }
+    [cand addObject:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs"]];
+    for (NSString *d in cand) {
+        BOOL has = [fm fileExistsAtPath:[d stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]];
+        fprintf(stderr, "romfs candidate %s: %s\\n", d.fileSystemRepresentation, has ? "OK (has the marker)" : "no");
+        if (has) return d;   // only a directory containing the game profile's romfs_marker path counts (Mario: System/Resource, the resource size table)
+    }
+    return nil;'''
+    assert old in orig, 'romfs search patch did not match: main.m changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('romfs search: main.m patched')
