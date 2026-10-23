@@ -99,7 +99,7 @@ else:
     // process in MTLTextureDescriptor validation ("invalid pixelFormat (130)" = BC1_RGBA).
     g_bc_ok = g_dev.supportsBCTextureCompression ? 1 : 0;
     if (!g_bc_ok) MLOG("[nvn-mtl] this GPU has no BC compressed formats: BC textures are decoded to RGBA8 on the CPU");''', 1)
-    s = s.replace('static id<MTLResidencySet> g_res;', 'static id<MTLResidencySet> g_res;\nstatic int g_bc_ok = 1;   // set in mtl_init from MTLDevice.supportsBCTextureCompression', 1)
+    s = s.replace('static id<MTLResidencySet> g_res;', 'static id<MTLResidencySet> g_res;\nstatic int g_bc_ok = 1;   // set in mtl_init from MTLDevice.supportsBCTextureCompression\nstatic int nvn_fmt_bc(uint32_t f);   // defined further down; used by tex_desc', 1)
     # 3) tex_desc: substitute the pixel format of a BC texture when the device cannot sample BC
     s = s.replace('''    if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf) { RED_ONCE(0, "texture format %#x has no Metal equivalent (first case)", t->d.format); return nil; }''',
 '''    if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf) { RED_ONCE(0, "texture format %#x has no Metal equivalent (first case)", t->d.format); return nil; }
