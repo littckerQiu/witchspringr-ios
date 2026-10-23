@@ -95,6 +95,16 @@ jobs:
           echo "metallibs: $n"
           [ "$n" -gt 1000 ] || { echo "[red] too few metallibs"; exit 1; }
           exit 0
+      - name: Shader auxiliary tables (c1 sizes, uniform extents)
+        run: |
+          set +e
+          cd /tmp/nx
+          export PATH="/tmp/spvc/b:$PATH"
+          export DOTNET_ROOT=/opt/homebrew/opt/dotnet/libexec
+          /tmp/venv/bin/python dm/gfx/tools/c1_guard.py 2>&1 | tail -4
+          /tmp/venv/bin/python dm/gfx/tools/cb_extent.py 2>&1 | tail -4
+          cd dm/games/$DM_GAME && wc -l c1_full.tsv cb_extent.tsv 2>/dev/null
+          exit 0
       - name: IPA
         env:
           FONT_PY: /tmp/venv/bin/python
