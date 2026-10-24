@@ -21,6 +21,11 @@ shader_versions	v0
 # ---- Files ----
 # load order as on Horizon: main, subsdk*, sdk
 modules	main subsdk0 sdk
+# Unity's job system: the main thread waits for a job whose completion is never signalled while all 16 job workers sit
+# idle (device log 2026-10-24, watchdog dump: condvar 0x708031c4e0 never signalled, workers 0.01 s CPU). The player supports
+# -job-worker-count (the string is in main), so this build runs every job on the main thread. DM_ARGS=... in Documents/env.txt
+# overrides this line without a rebuild.
+game_args	-job-worker-count 0
 romfs_marker	Data
 zip_store	.bundle:.resource:.unity3d
 
