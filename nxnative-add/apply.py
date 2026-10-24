@@ -214,3 +214,27 @@ else:
     assert old in orig, 'shdump patch did not match: main.m changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('shdump path: main.m patched')
+
+# ---- DM_ARGS: game arguments from the environment ----------------------------------------------------
+# The host passes game arguments ("--" on the command line, else the profile's game_args). On the device the profile is
+# compiled in, so testing a different Unity command-line switch (this build uses -job-worker-count for the job-system hang
+# at load) would need a rebuild every time. DM_ARGS=... in Documents/env.txt now overrides the profile.
+p = nx / 'dm' / 'host' / 'main.c'
+orig = p.read_text()
+if 'DM_ARGS' in orig:
+    print('DM_ARGS: already handled')
+else:
+    old = '''    else if (*DM_GAME_ARGS) {   // no "--" on the command line (the iOS app, the NSP script's Mac runs): the game profile's game_args, split at spaces
+        char *s = strdup(DM_GAME_ARGS);
+        for (char *t = strtok(s, " "); t && g_argc < 63; t = strtok(NULL, " ")) g_argv[g_argc++] = t;
+        LOG("game arguments from the game profile: %s", DM_GAME_ARGS);
+    }'''
+    new = '''    else if (getenv("DM_ARGS") ? **getenv("DM_ARGS") != 0 : *DM_GAME_ARGS != 0) {   // no "--" on the command line: DM_ARGS from the environment, else the profile's game_args, split at spaces
+        const char *ga = getenv("DM_ARGS"); if (!ga || !*ga) ga = DM_GAME_ARGS;
+        char *s = strdup(ga);
+        for (char *t = strtok(s, " "); t && g_argc < 63; t = strtok(NULL, " ")) g_argv[g_argc++] = t;
+        LOG("game arguments: %s", ga);
+    }'''
+    assert old in orig, 'DM_ARGS patch did not match: main.c changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('DM_ARGS: main.c patched')
