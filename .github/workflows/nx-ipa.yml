@@ -143,9 +143,10 @@ jobs:
           V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' /tmp/nx/dm/games/$DM_GAME/dmsh_chain.h)
           [ -n "$V" ] || { echo "no chain version"; exit 0; }
           mkdir -p /tmp/pfz/mac /tmp/pfz/ios
-          cp -c /tmp/msl/b-$V/*_b.metal /tmp/msl/b-$V/*_b.metallib /tmp/pfz/mac/ 2>/dev/null || cp /tmp/msl/b-$V/*_b.metal /tmp/msl/b-$V/*_b.metallib /tmp/pfz/mac/
-          cp /tmp/msl_ios/b-$V/*_b.metallib /tmp/msl_ios/b-$V/*_b.json /tmp/pfz/ios/ 2>/dev/null || true
-          ls /tmp/pfz/mac | wc -l; ls /tmp/pfz/ios | wc -l
+          # tar, not a shell glob: 58k file names overflow the argument list, which is why the first archive came out empty.
+          tar -C /tmp/msl/b-$V -cf - --include '*_b.metal' --include '*_b.metallib' . 2>/dev/null | tar -C /tmp/pfz/mac -xf - 2>/dev/null
+          tar -C /tmp/msl_ios/b-$V -cf - --include '*_b.metallib' --include '*_b.json' . 2>/dev/null | tar -C /tmp/pfz/ios -xf - 2>/dev/null
+          echo "mac files: $(find /tmp/pfz/mac -type f | wc -l), ios files: $(find /tmp/pfz/ios -type f | wc -l)"
           cd /tmp/pfz && zip -qr -1 /tmp/shaders-cache.zip mac ios && ls -l /tmp/shaders-cache.zip
           OLD=$(gh api repos/littckerQiu/witchspringr-data/releases/420393850/assets --jq '.[]|select(.name=="shaders-cache.zip")|.id')
           [ -n "$OLD" ] && gh api -X DELETE repos/littckerQiu/witchspringr-data/releases/assets/$OLD
