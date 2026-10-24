@@ -238,3 +238,23 @@ else:
     assert old in orig, 'DM_ARGS patch did not match: main.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('DM_ARGS: main.c patched')
+
+# ---- DM_SIGLOG: count what each condition-variable signal actually woke --------------------------------
+# A lost wakeup ("the job queue was signalled, but the signal woke nobody") is invisible in a thread dump: the waiters
+# simply stay asleep. DM_SIGLOG=1 logs every svcSignalProcessWideKey with its key and the number of threads it moved,
+# capped so a long run cannot flood the log.
+p = nx / 'dm' / 'host' / 'hle_thread.c'
+orig = p.read_text()
+if 'DM_SIGLOG' in orig:
+    print('siglog: already present')
+else:
+    old = '''        int left = 0; for (thr_t *w = g_wait; w; w = w->next) if (w->wkind == 2 && w->wkey == key) { left = 1; break; }
+        if (!left) st32(key, 0);'''
+    new = '''        int left = 0; for (thr_t *w = g_wait; w; w = w->next) if (w->wkind == 2 && w->wkey == key) { left = 1; break; }
+        if (!left) st32(key, 0);
+        { static int siglog = -1; static long nlog; if (siglog < 0) siglog = getenv("DM_SIGLOG") != NULL;
+          if (siglog && (nlog < 300 || nlog % 2000 == 0)) LOG("[sig] key %#llx woke %d, %s", (unsigned long long)key, n, left ? "waiters left" : "none left");
+          nlog++; }'''
+    assert old in orig, 'siglog patch did not match: hle_thread.c changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('siglog: hle_thread.c patched')
