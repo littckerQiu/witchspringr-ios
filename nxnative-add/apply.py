@@ -229,7 +229,7 @@ else:
         for (char *t = strtok(s, " "); t && g_argc < 63; t = strtok(NULL, " ")) g_argv[g_argc++] = t;
         LOG("game arguments from the game profile: %s", DM_GAME_ARGS);
     }'''
-    new = '''    else if (getenv("DM_ARGS") ? **getenv("DM_ARGS") != 0 : *DM_GAME_ARGS != 0) {   // no "--" on the command line: DM_ARGS from the environment, else the profile's game_args, split at spaces
+    new = '''    else if ((getenv("DM_ARGS") && *getenv("DM_ARGS")) || *DM_GAME_ARGS) {   // no "--" on the command line: DM_ARGS from the environment, else the profile's game_args, split at spaces
         const char *ga = getenv("DM_ARGS"); if (!ga || !*ga) ga = DM_GAME_ARGS;
         char *s = strdup(ga);
         for (char *t = strtok(s, " "); t && g_argc < 63; t = strtok(NULL, " ")) g_argv[g_argc++] = t;
