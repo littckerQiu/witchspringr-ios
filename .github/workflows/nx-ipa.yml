@@ -93,14 +93,11 @@ jobs:
           /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --update-lock 2>&1 | tail -6 || true
           /tmp/venv/bin/python dm/gfx/tools/dmsh_chain.py --header 2>&1 | tail -3
           cat dm/games/$DM_GAME/dmsh_chain.h
-      - name: Shader caches (so a re-run does not rebuild 44k shaders)
-        uses: actions/cache@v4
-        with:
-          path: |
-            /tmp/msl
-            /tmp/msl_ios
-          key: wsr-shaders-${{ github.run_id }}
-          restore-keys: wsr-shaders-
+      # The shader cache grew to 8.7 GB (mac + iOS metallibs), and restoring it over a slow link costs more than
+      # compiling: 58k shaders take about 40-60 min of CPU on 8 cores, with no download at all. Re-enable if the
+      # cache is trimmed to the iOS set only.
+      - name: Shader caches (disabled: 8.7 GB restore is slower than a full rebuild)
+        run: echo "compiling every shader; no cache restore"
       - name: iOS shader libraries (dmsh_build)
         env:
           DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
