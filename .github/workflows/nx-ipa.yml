@@ -167,7 +167,10 @@ jobs:
           ln -sfn /tmp/prod /tmp/w/build/patched_v0
           mkdir -p /tmp/w/data/v0 && touch /tmp/w/data/v0/.keep
           cd /tmp/nx
-          W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs_min MSL_IOS=/tmp/msl_ios AOC= \
+          # Bake the stall watchdog in: the host writes a full thread dump when the frame loop stops for 8 s, so a hang
+          # explains itself without the player having to create Documents/env.txt first.
+          printf 'DM_WATCH_STALL=8\n' > /tmp/baked.env
+          W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs_min MSL_IOS=/tmp/msl_ios AOC= DM_ENV_FILE=/tmp/baked.env \
             bash dm/ios/tools/build_ipa.sh /tmp/WitchSpringR.ipa 2>&1 | tail -30 || true
           ls -l /tmp/WitchSpringR.ipa 2>/dev/null || echo "no ipa"
       - name: Upload
