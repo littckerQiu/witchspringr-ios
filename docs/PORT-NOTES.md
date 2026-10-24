@@ -80,3 +80,32 @@ So the endgame is to stop fighting our fork's VAMM and instead:
 2. build the IPA from the upstream tree with our profile (`.github/workflows/nx-ipa.yml` already does tables → iOS
    metallibs → IPA);
 3. hand that IPA over, with `Documents/romfs` holding the game files (the upstream app reads `Documents/romfs`).
+
+## Round 5-3: the loading-screen hang, and the full shader set
+
+Device log (2026-10-23, A15, upstream host): the game boots through `nnMain`, Unity's loading screen animates at
+~55 fps, the progress bar fills, and then the frame counter stops while the music keeps playing. Right before that:
+
+    [RED] shader 54c93c8d0edfb6d0 is not in the shader map
+    [RED] the dispatched program has no compute shader (or it is not mapped)
+    [RED] shader 0f417fc907b773f4 is not in the shader map
+
+So the last blocker is a **compute shader the shader map never had**. The map had been built from `data.unity3d` + `main`
+only (the 5,839 Addressables bundles were not in the CI data subset), and upstream's `shader_split.py` skips
+ComputeShader objects whose layout it does not know (it carries Unity 2022.3's; this game is 2020.2, where the object is
+`variants -> kernels -> variantMap[(keywords, {code, threadGroupSize})]`, not `kernels -> uniqueVariants`).
+
+Fixed in three steps, all verified:
+1. scanned the **complete RomFS** locally (6.07 GB, 5,881 files) with a serial stand-in for `ProcessPoolExecutor`
+   (this container has no `/dev/shm`) and ComputeShader layout failures made non-fatal: 58,430 shaders (from 44,310);
+2. extracted the 26 ComputeShader objects (40 variants) from `data.unity3d` with UnityPy directly, rebuilt their
+   control/code with `shader_split.unity_program()`, added them to the package and the map (**both missing keys found**);
+3. CI now builds from that set: `metallibs: 58429`, `shaders 58430: ok 58429, metal failed 1`, IPA 816 MB
+   (no RomFS inside: the game plays from `Documents/RomFS`, which the app now finds under any name, see below).
+
+Also shipped in this build:
+- `Documents/env.txt` key `DM_APP_POOL_MB=<MB>`: the application pool can be changed on the device without a rebuild
+  (the heap request is pool - images, and it is the address space Unity's own pools do not get);
+- the app searches every child and grandchild of Documents for the profile's RomFS marker and logs each candidate
+  (`romfs candidate ...: OK (has the marker)` / `no`);
+- software BC decoding for GPUs without BC support (verified on the device: `BC texture format 0x42 -> Metal format 0x46`).
