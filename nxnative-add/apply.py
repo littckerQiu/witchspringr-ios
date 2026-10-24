@@ -196,3 +196,21 @@ static uint64_t app_pool_bytes(void) {
     assert old in orig, 'app pool override patch did not match: hle_svc.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('app pool override: hle_svc.c patched')
+
+# ---- DM_NVN_SHDUMP with a relative directory lands in Documents --------------------------------
+# Dumping shaders missing from the map is the fastest way to add them (the dump is exactly the control section and code
+# area the map records), but the host only accepts an absolute directory and the app's container UUID changes with every
+# reinstall. A plain name (DM_NVN_SHDUMP=shump) is resolved under Documents here, so Documents/env.txt never has to carry
+# a UUID.
+p = nx / 'dm' / 'ios' / 'Sources' / 'main.m'
+orig = p.read_text()
+if 'DM_NVN_SHDUMP' in orig:
+    print('shdump path: already handled')
+else:
+    old = '    setenv("DM_SAVE", [doc stringByAppendingPathComponent:@"save"].fileSystemRepresentation, 0);'
+    new = '''    setenv("DM_SAVE", [doc stringByAppendingPathComponent:@"save"].fileSystemRepresentation, 0);
+    { const char *sd = getenv("DM_NVN_SHDUMP");   // a relative name goes to Documents (the container path changes per install)
+      if (sd && sd[0] && sd[0] != '/') setenv("DM_NVN_SHDUMP", [doc stringByAppendingPathComponent:@(sd)].fileSystemRepresentation, 1); }'''
+    assert old in orig, 'shdump patch did not match: main.m changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('shdump path: main.m patched')
