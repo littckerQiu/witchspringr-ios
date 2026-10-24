@@ -258,3 +258,18 @@ else:
     assert old in orig, 'siglog patch did not match: hle_thread.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('siglog: hle_thread.c patched')
+
+# ---- DM_CORES: report fewer cores ---------------------------------------------------------------
+# Unity sizes its job-worker pool from the core count it is told. The game hangs with 16 workers waiting on a job queue
+# nothing feeds (device log 2026-10-24), so a smaller count is a way to make the engine keep the work on the main thread
+# without relying on a Unity command-line switch. DM_CORES=1 in Documents/env.txt reports one core.
+p = nx / 'dm' / 'host' / 'hle_svc.c'
+orig = p.read_text()
+if 'DM_CORES' in orig:
+    print('cores: already present')
+else:
+    old = '        case I_CoreMask: v = 7; break;'
+    new = '''        case I_CoreMask: { static uint64_t n; if (!n) { const char *e = getenv("DM_CORES"); n = 1 + (e && atoi(e) >= 1 && atoi(e) <= 3 ? (uint64_t)(atoi(e) - 1) : 2); if (e) LOG("DM_CORES: reporting %llu core(s)", (unsigned long long)(n + 1)); } v = n; break; }'''
+    assert old in orig, 'cores patch did not match: hle_svc.c changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('cores: hle_svc.c patched')
