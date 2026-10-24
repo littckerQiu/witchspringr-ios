@@ -98,6 +98,18 @@ jobs:
       # cache is trimmed to the iOS set only.
       - name: Shader caches (disabled, a full rebuild is faster than the 8.7 GB restore)
         run: echo "compiling every shader; no cache restore"
+      - name: Prefill the Metal compile cache (from the last build's archive, if any)
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          set +e
+          mkdir -p /tmp/pf
+          gh release download data --repo littckerQiu/witchspringr-data --pattern shaders-cache.zip --dir /tmp/pf || { echo "no prefill archive yet"; exit 0; }
+          unzip -q /tmp/pf/shaders-cache.zip -d /tmp/pf/x
+          ls /tmp/pf/x; du -sm /tmp/pf/x
+          echo "DMSH_PREFILL=/tmp/pf/x/mac=/tmp/pf/x/ios" >> $GITHUB_ENV
+          echo "prefill enabled"
+          exit 0
       - name: iOS shader libraries (dmsh_build)
         env:
           DOTNET_ROOT: /opt/homebrew/opt/dotnet/libexec
@@ -122,6 +134,23 @@ jobs:
           /tmp/venv/bin/python dm/gfx/tools/cb_extent.py 2>&1 | tail -4
           cd dm/games/$DM_GAME && wc -l c1_full.tsv cb_extent.tsv 2>/dev/null
           exit 0
+      - name: Archive the Metal libraries for the next build
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          set +e
+          V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' /tmp/nx/dm/games/$DM_GAME/dmsh_chain.h)
+          [ -n "$V" ] || { echo "no chain version"; exit 0; }
+          mkdir -p /tmp/pfz/mac /tmp/pfz/ios
+          cp -c /tmp/msl/b-$V/*_b.metal /tmp/msl/b-$V/*_b.metallib /tmp/pfz/mac/ 2>/dev/null || cp /tmp/msl/b-$V/*_b.metal /tmp/msl/b-$V/*_b.metallib /tmp/pfz/mac/
+          cp /tmp/msl_ios/b-$V/*_b.metallib /tmp/msl_ios/b-$V/*_b.json /tmp/pfz/ios/ 2>/dev/null || true
+          ls /tmp/pfz/mac | wc -l; ls /tmp/pfz/ios | wc -l
+          cd /tmp/pfz && zip -qr -1 /tmp/shaders-cache.zip mac ios && ls -l /tmp/shaders-cache.zip
+          OLD=$(gh api repos/littckerQiu/witchspringr-data/releases/420393850/assets --jq '.[]|select(.name=="shaders-cache.zip")|.id')
+          [ -n "$OLD" ] && gh api -X DELETE repos/littckerQiu/witchspringr-data/releases/assets/$OLD
+          gh release upload data /tmp/shaders-cache.zip --repo littckerQiu/witchspringr-data --clobber
+          echo done
       - name: IPA
         env:
           FONT_PY: /tmp/venv/bin/python
