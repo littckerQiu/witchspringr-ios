@@ -269,7 +269,7 @@ if 'DM_CORES' in orig:
     print('cores: already present')
 else:
     old = '        case I_CoreMask: v = 7; break;'
-    new = '''        case I_CoreMask: { static uint64_t n; if (!n) { const char *e = getenv("DM_CORES"); n = 1 + (e && atoi(e) >= 1 && atoi(e) <= 3 ? (uint64_t)(atoi(e) - 1) : 2); if (e) LOG("DM_CORES: reporting %llu core(s)", (unsigned long long)(n + 1)); } v = n; break; }'''
+    new = '''        case I_CoreMask: { static uint64_t n; if (!n) { const char *e = getenv("DM_CORES"); int c = e ? atoi(e) : 3; if (c < 1 || c > 3) c = 3; n = (1u << c) - 1; if (e) LOG("DM_CORES: reporting %d core(s), mask %#llx", c, (unsigned long long)n); } v = n; break; }   // 3 cores by default (mask 7); DM_CORES=1..3 reports fewer'''
     assert old in orig, 'cores patch did not match: hle_svc.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('cores: hle_svc.c patched')
