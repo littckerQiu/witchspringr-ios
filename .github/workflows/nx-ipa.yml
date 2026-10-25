@@ -136,8 +136,8 @@ jobs:
           V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' dm/games/$DM_GAME/dmsh_chain.h)
           [ -n "$V" ] || V=$(ls /tmp/msl | grep '^b-' | head -1)
           echo "chain $V"
-          /tmp/venv/bin/python dm/gfx/tools/c1_guard.py /tmp/msl/b-$V dm/games/$DM_GAME/c1_full.tsv 2>&1 | tail -4
-          /tmp/venv/bin/python dm/gfx/tools/cb_extent.py /tmp/msl/b-$V dm/games/$DM_GAME/cb_extent.tsv 2>&1 | tail -4
+          /tmp/venv/bin/python dm/gfx/tools/c1_guard.py /tmp/msl/b-$V dm/games/$DM_GAME/c1_full.tsv 2>&1 | tail -4 || echo "c1_guard failed (the host falls back to 64 KiB per c1)"
+          /tmp/venv/bin/python dm/gfx/tools/cb_extent.py /tmp/msl/b-$V dm/games/$DM_GAME/cb_extent.tsv 2>&1 | tail -4 || echo "cb_extent failed (the host copies whole bindings)"
           wc -l dm/games/$DM_GAME/c1_full.tsv dm/games/$DM_GAME/cb_extent.tsv 2>/dev/null
           exit 0
       - name: Archive the Metal libraries for the next build
