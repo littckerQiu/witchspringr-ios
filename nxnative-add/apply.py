@@ -328,3 +328,27 @@ static void kick_start(void) {
         orig = orig.replace('#include "dm.h"', '#include "dm.h"\n#include <unistd.h>', 1)
     p.write_text(orig)
     print('futex kick: hle_thread.c patched')
+
+# ---- Dump more of the object a stalled thread waits on -------------------------------------------------
+# 64 bytes is one Unity queue slot; a job queue holds its pending-job count and the worker slots around it, and the
+# difference between "the job was never enqueued" and "the job is queued but nobody took it" is inside those bytes.
+# DM_DUMP_WAITBIG=1 dumps 256 bytes instead.
+p = nx / 'dm' / 'host' / 'hle_thread.c'
+orig = p.read_text()
+if 'DM_DUMP_WAITBIG' in orig:
+    print('big wait dump: already present')
+else:
+    old = '''        uint8_t raw[64]; vm_size_t g3 = 0;'''
+    new = '''        static int bigwait = -1; if (bigwait < 0) bigwait = getenv("DM_DUMP_WAITBIG") != NULL; const int rawsz = bigwait ? 256 : 64;
+        uint8_t raw[256]; vm_size_t g3 = 0;'''
+    assert old in orig
+    orig = orig.replace(old, new, 1)
+    orig = orig.replace('''!(vm_read_overwrite(mach_task_self(), t->waddr & ~0xfull, 64, (vm_address_t)raw, &g3))''',
+                        '''!(vm_read_overwrite(mach_task_self(), t->waddr & ~0xfull, rawsz, (vm_address_t)raw, &g3))''')
+    orig = orig.replace('''        if (have_raw) { char hx[200]; int q = 0; for (int i = 0; i < 64; i += 4) q += snprintf(hx + q, sizeof hx - q, "%08x ", *(uint32_t *)(raw + i));
+                        fprintf(stderr, "[dm]   %#x waited-for object, 64 bytes from %#llx: %s\\n", t->handle, t->waddr & ~0xfull, hx); }''',
+'''        if (have_raw) { for (int base = 0; base < rawsz; base += 64) { char hx[220]; int q = 0;
+                            for (int i = base; i < base + 64 && i < rawsz; i += 4) q += snprintf(hx + q, sizeof hx - q, "%08x ", *(uint32_t *)(raw + i));
+                            fprintf(stderr, "[dm]   %#x waited-for object, %d bytes from %#llx: %s\\n", t->handle, rawsz, (t->waddr & ~0xfull) + base, hx); } }''')
+    p.write_text(orig)
+    print('big wait dump: hle_thread.c patched')
