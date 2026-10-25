@@ -253,7 +253,10 @@ else:
     new = '''        int left = 0; for (thr_t *w = g_wait; w; w = w->next) if (w->wkind == 2 && w->wkey == key) { left = 1; break; }
         if (!left) st32(key, 0);
         { static int siglog = -1; static long nlog; if (siglog < 0) siglog = getenv("DM_SIGLOG") != NULL;
-          if (siglog && (nlog < 300 || nlog % 2000 == 0)) LOG("[sig] key %#llx woke %d, %s", (unsigned long long)key, n, left ? "waiters left" : "none left");
+          if (siglog && (nlog < 400 || nlog % 2000 == 0)) {
+              thr_t *me = cur(); uint64_t lr = me ? me->last_lr : 0; module_t *m = module_of((void *)lr);
+              LOG("[sig] key %#llx woke %d, %s, from %s+%#llx", (unsigned long long)key, n, left ? "waiters left" : "none left",
+                  m ? m->name : "?", m ? lr - (uint64_t)m->base : lr); }
           nlog++; }'''
     assert old in orig, 'siglog patch did not match: hle_thread.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
