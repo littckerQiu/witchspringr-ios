@@ -109,3 +109,28 @@ Also shipped in this build:
 - the app searches every child and grandchild of Documents for the profile's RomFS marker and logs each candidate
   (`romfs candidate ...: OK (has the marker)` / `no`);
 - software BC decoding for GPUs without BC support (verified on the device: `BC texture format 0x42 -> Metal format 0x46`).
+
+## The loading-screen freeze: a job queue nobody wakes
+
+Device logs (2026-10-24/25) with `DM_WATCH_STALL=8`, `DM_THR=1` and `DM_SIGLOG=1`:
+
+    main thread   waits:condvar key 0x708031c450, wait #86428   <- never signalled
+    16 x Background Job.Worker  waits:condvar key 0x708031c060   <- never signalled, 0.01 s CPU each
+    [sig] key 0x708031c270 woke 1 ...                            <- other queues do get signals
+
+So the Unity job workers wait on a queue condition variable that nothing ever signals, while the main thread waits for
+a job those workers would run: the frame loop stops, the audio thread keeps going.
+
+Tried and ruled out, each measured:
+- `-job-worker-count 0/1/2/4` through `DM_ARGS`: Unity ignores it on Switch, it always creates 16 workers;
+- `DM_CORES=1` (the host reports one core): Unity does not size the worker pool from the core count either.
+
+In place now, as a workaround and as a general diagnostic:
+- **`DM_FUTEX_KICK=<ms>`**: wakes every condition-variable waiter on a timer. A spurious wakeup is legal for a condition
+  variable (the waiter re-checks its condition), so this recovers a wakeup the guest never sent — it is not specific to
+  this game;
+- `DM_SIGLOG=1`: logs what each `svcSignalProcessWideKey` actually woke (capped), which is how the table above was made.
+
+Build pipeline (matters for iteration speed): the shader compile cache is archived to the private data repo after each
+build (`shaders-cache-mac.zip`, `shaders-cache-ios.zip`) and restored with `DMSH_PREFILL`. Measured on the next build:
+`Metal cache: mac 61332 reused, 89 compiled, 17759 filled` — a rebuild compiles ~90 shaders instead of 58,469.
