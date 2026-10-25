@@ -15,6 +15,10 @@
 CUTS = {
     'a5cb2175cad2ca2afdd4c13577dbd079': [
         (0x134778, '08fca752', '087ca052', 'AddressRegionManager node area: mov w8,#0x3fe00000 (1 GB) -> #0x3e00000 (62 MB)'),
+        # The constructor registers the node area's length as an occupied region with a second mov (w9); cutting only the first
+        # left the manager believing it owned 1 GB while the region started 62 MB in, which is exactly the bookkeeping mismatch
+        # docs/agents/03-bringup.md warns about (Octopath / TotK cut both).
+        (0x13480c, '09fca752', '097ca052', 'AddressRegionManager node area length: mov w9,#0x3fe00000 (1 GB) -> #0x3e00000 (62 MB)'),
     ],
 }
 OBS = {}
