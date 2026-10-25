@@ -131,9 +131,14 @@ jobs:
           cd /tmp/nx
           export PATH="/tmp/spvc/b:$PATH"
           export DOTNET_ROOT=/opt/homebrew/opt/dotnet/libexec
-          /tmp/venv/bin/python dm/gfx/tools/c1_guard.py 2>&1 | tail -4
-          /tmp/venv/bin/python dm/gfx/tools/cb_extent.py 2>&1 | tail -4
-          cd dm/games/$DM_GAME && wc -l c1_full.tsv cb_extent.tsv 2>/dev/null
+          # Both tools take the built version directory and the output path; called without arguments they only print usage,
+          # which is why the device kept reporting "[RED] c1_full.tsv is stale or missing".
+          V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' dm/games/$DM_GAME/dmsh_chain.h)
+          [ -n "$V" ] || V=$(ls /tmp/msl | grep '^b-' | head -1)
+          echo "chain $V"
+          /tmp/venv/bin/python dm/gfx/tools/c1_guard.py /tmp/msl/b-$V dm/games/$DM_GAME/c1_full.tsv 2>&1 | tail -4
+          /tmp/venv/bin/python dm/gfx/tools/cb_extent.py /tmp/msl/b-$V dm/games/$DM_GAME/cb_extent.tsv 2>&1 | tail -4
+          wc -l dm/games/$DM_GAME/c1_full.tsv dm/games/$DM_GAME/cb_extent.tsv 2>/dev/null
           exit 0
       - name: Archive the Metal libraries for the next build
         if: always()
