@@ -134,3 +134,16 @@ In place now, as a workaround and as a general diagnostic:
 Build pipeline (matters for iteration speed): the shader compile cache is archived to the private data repo after each
 build (`shaders-cache-mac.zip`, `shaders-cache-ios.zip`) and restored with `DMSH_PREFILL`. Measured on the next build:
 `Metal cache: mac 61332 reused, 89 compiled, 17759 filled` — a rebuild compiles ~90 shaders instead of 58,469.
+
+## The node-area cut needs both constants
+
+docs/agents/03-bringup.md records the pair for Octopath Traveler 0 and Tears of the Kingdom; this game's sdk has the same
+two instructions, and only the first one was cut:
+
+    sdk+0x134778  mov w8, #0x3fe00000   (where the AddressRegionManager's node area starts)  -> 62 MB  [cut]
+    sdk+0x13480c  mov w9, #0x3fe00000   (the node area's length, registered as occupied)    -> 62 MB  [was left at 1 GB]
+
+So the manager owned a 1 GB range that begins 62 MB in, overlapping the space VAMM then hands out for the game's heap and
+Unity's pools: two live objects can end up on one address. That fits the job-queue stall exactly (the workers wait on one
+condition variable while the scheduler signals another, 0x30 apart in the same structure). Both are cut now; verified in
+the product (`cuts 2`, `0x134778 087ca052`, `0x13480c 097ca052`).
