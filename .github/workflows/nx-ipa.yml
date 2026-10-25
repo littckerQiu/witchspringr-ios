@@ -104,10 +104,11 @@ jobs:
         run: |
           set +e
           mkdir -p /tmp/pf
-          gh release download data --repo littckerQiu/witchspringr-data --pattern shaders-cache.zip --dir /tmp/pf || { echo "no prefill archive yet"; exit 0; }
-          unzip -q /tmp/pf/shaders-cache.zip -d /tmp/pf/x
-          ls /tmp/pf/x; du -sm /tmp/pf/x
-          echo "DMSH_PREFILL=/tmp/pf/x/mac=/tmp/pf/x/ios" >> $GITHUB_ENV
+          gh release download data --repo littckerQiu/witchspringr-data --pattern 'shaders-cache-*.zip' --dir /tmp/pf || { echo "no prefill archive yet"; exit 0; }
+          mkdir -p /tmp/pf/mac /tmp/pf/ios
+          for z in /tmp/pf/shaders-cache-mac.zip /tmp/pf/shaders-cache-ios.zip; do [ -f "$z" ] && unzip -qo "$z" -d /tmp/pf/$(basename "$z" | sed 's/shaders-cache-\(.*\)\.zip/\1/'); done
+          du -sm /tmp/pf/mac /tmp/pf/ios
+          echo "DMSH_PREFILL=/tmp/pf/mac=/tmp/pf/ios" >> $GITHUB_ENV
           echo "prefill enabled"
           exit 0
       - name: iOS shader libraries (dmsh_build)
@@ -142,15 +143,15 @@ jobs:
           set +e
           V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' /tmp/nx/dm/games/$DM_GAME/dmsh_chain.h)
           [ -n "$V" ] || { echo "no chain version"; exit 0; }
-          mkdir -p /tmp/pfz/mac /tmp/pfz/ios
-          # tar, not a shell glob: 58k file names overflow the argument list, which is why the first archive came out empty.
-          tar -C /tmp/msl/b-$V -cf - --include '*_b.metal' --include '*_b.metallib' . 2>/dev/null | tar -C /tmp/pfz/mac -xf - 2>/dev/null
-          tar -C /tmp/msl_ios/b-$V -cf - --include '*_b.metallib' --include '*_b.json' . 2>/dev/null | tar -C /tmp/pfz/ios -xf - 2>/dev/null
-          echo "mac files: $(find /tmp/pfz/mac -type f | wc -l), ios files: $(find /tmp/pfz/ios -type f | wc -l)"
-          cd /tmp/pfz && zip -qr -1 /tmp/shaders-cache.zip mac ios && ls -l /tmp/shaders-cache.zip
-          OLD=$(gh api repos/littckerQiu/witchspringr-data/releases/420393850/assets --jq '.[]|select(.name=="shaders-cache.zip")|.id')
-          [ -n "$OLD" ] && gh api -X DELETE repos/littckerQiu/witchspringr-data/releases/assets/$OLD
-          gh release upload data /tmp/shaders-cache.zip --repo littckerQiu/witchspringr-data --clobber
+          [ -d /tmp/msl/b-$V ] || { echo "no mac libraries"; exit 0; }
+          # Zip each side as it stands (zip takes a directory, so no 58k-name argument list and no tar pattern matching).
+          ( cd /tmp/msl && zip -qr -1 /tmp/shaders-cache-mac.zip b-$V ) && ls -l /tmp/shaders-cache-mac.zip
+          ( cd /tmp/msl_ios && zip -qr -1 /tmp/shaders-cache-ios.zip b-$V ) && ls -l /tmp/shaders-cache-ios.zip
+          for n in mac ios; do
+            OLD=$(gh api repos/littckerQiu/witchspringr-data/releases/420393850/assets --jq ".[]|select(.name==\"shaders-cache-$n.zip\")|.id")
+            [ -n "$OLD" ] && gh api -X DELETE repos/littckerQiu/witchspringr-data/releases/assets/$OLD
+            gh release upload data /tmp/shaders-cache-$n.zip --repo littckerQiu/witchspringr-data --clobber || echo "upload $n failed"
+          done
           echo done
       - name: IPA
         env:
