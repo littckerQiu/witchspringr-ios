@@ -273,3 +273,56 @@ else:
     assert old in orig, 'cores patch did not match: hle_svc.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('cores: hle_svc.c patched')
+
+# ---- DM_FUTEX_KICK: a spurious wakeup every few ms ------------------------------------------------
+# A condition-variable wakeup may be spurious: the waiter's loop re-checks its condition and sleeps again. So waking
+# every condition-variable waiter periodically is semantically free, and it recovers a wakeup the guest never sent.
+# WitchSpring R needs it: DM_SIGLOG showed all 16 job workers waiting on one queue condvar that is never signalled,
+# while the main thread waits for the job they would run (device log 2026-10-24 21:00).
+p = nx / 'dm' / 'host' / 'hle_thread.c'
+orig = p.read_text()
+if 'DM_FUTEX_KICK' in orig:
+    print('futex kick: already present')
+else:
+    anchor = '''static void lock_acquire_for(thr_t *t, uint64_t addr, uint32_t tag) {'''
+    i = orig.index(anchor)
+    j = orig.index('\n}\n', i) + 3
+    kick = '''
+// DM_FUTEX_KICK=<ms>: wake every condition-variable waiter on a timer (see the note where it is started)
+static void *kick_thread(void *arg) {
+    int ms = (int)(intptr_t)arg;
+    for (;;) {
+        usleep((useconds_t)ms * 1000);
+        pthread_mutex_lock(&G);
+        int n = 0;
+        for (int guard = 0; guard < 4096; guard++) {
+            thr_t *w = NULL;
+            for (thr_t *t = g_wait; t; t = t->next) if (t->wkind == 2) { w = t; break; }
+            if (!w) break;
+            lock_acquire_for(w, w->waddr, w->wtag);   // the same hand-over a real Signal does
+            n++;
+        }
+        pthread_mutex_unlock(&G);
+        if (n) { static int c; if (c < 20 || c % 200 == 0) LOG("[kick] woke %d condition-variable waiter(s)", n); c++; }
+    }
+    return NULL;
+}
+static void kick_start(void) {
+    static int started; const char *e = getenv("DM_FUTEX_KICK");
+    if (started || !e) return; started = 1;
+    int ms = atoi(e); if (ms < 10) ms = 10; if (ms > 2000) ms = 2000;
+    pthread_t th;
+    if (!pthread_create(&th, NULL, kick_thread, (void *)(intptr_t)ms)) { pthread_detach(th); LOG("DM_FUTEX_KICK: waking condition-variable waiters every %d ms", ms); }
+}
+'''
+    orig = orig[:j] + kick + orig[j:]
+    # start it the first time the guest waits on a condition
+    old = '''    case 0x1C: {  // WaitProcessWideKeyAtomic(x0 lock address, x1 condition key, w2 tag, x3 timeout)
+        thr_t *t = cur(); uint64_t addr = regs[0], key = regs[1];'''
+    new = '''    case 0x1C: {  // WaitProcessWideKeyAtomic(x0 lock address, x1 condition key, w2 tag, x3 timeout)
+        kick_start();   // DM_FUTEX_KICK: a timer that wakes condition-variable waiters (defined above this switch)
+        thr_t *t = cur(); uint64_t addr = regs[0], key = regs[1];'''
+    assert old in orig
+    orig = orig.replace(old, new, 1)
+    p.write_text(orig)
+    print('futex kick: hle_thread.c patched')
