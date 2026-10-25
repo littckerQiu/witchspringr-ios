@@ -28,6 +28,10 @@ entry = """  # WitchSpring R v0 sdk (16 MB system resource -> virtual address me
   # block a phone gives a process. sdk+0x134778 is nn::os::detail::AddressRegionManager::AddressRegionManager.
   'a5cb2175cad2ca2afdd4c13577dbd079': [
     (0x134778, '08fca752', '087ca052', 'AddressRegionManager node area: mov w8,#0x3fe00000 (1 GB) -> #0x3e00000 (62 MB)'),
+    # The constructor also registers the node area's LENGTH as an occupied region, with a second mov (w9). Cutting only the
+    # start left the manager owning 1 GB that begins 62 MB in: docs/agents/03-bringup.md documents this exact pair (Octopath,
+    # Tears of the Kingdom) and a mismatched occupied region is how two live objects end up sharing an address.
+    (0x13480c, '09fca752', '097ca052', 'AddressRegionManager node area length: mov w9,#0x3fe00000 (1 GB) -> #0x3e00000 (62 MB)'),
   ],
 """
 anchor = "CUTS = {\n"
