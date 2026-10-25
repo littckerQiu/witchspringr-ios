@@ -324,7 +324,7 @@ static void kick_start(void) {
         thr_t *t = cur(); uint64_t addr = regs[0], key = regs[1];'''
     assert old in orig
     orig = orig.replace(old, new, 1)
-    if '#include <unistd.h>' not in orig:   // usleep in the kick thread
+    if '#include <unistd.h>' not in orig:   # usleep in the kick thread
         orig = orig.replace('#include "dm.h"', '#include "dm.h"\n#include <unistd.h>', 1)
     p.write_text(orig)
     print('futex kick: hle_thread.c patched')
