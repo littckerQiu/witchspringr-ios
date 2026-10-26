@@ -456,3 +456,37 @@ static void watch_dump_start(void) {
     orig = orig.replace(old, new, 1)
     p.write_text(orig)
     print('watch dump: hle_thread.c patched')
+
+# ---- DM_IOS_ONLY: skip the macOS half of the shader build ------------------------------------------
+# The IPA ships only the iphoneos libraries (msl/b-<chain>/<key>_b.metallib + .json), so compiling every shader a second
+# time for macOS doubles the build for nothing. The MSL is still written: the compile cache is keyed by its digest.
+p = nx / 'dm' / 'gfx' / 'tools' / 'dmsh_build.py'
+orig = p.read_text()
+if 'DM_IOS_ONLY' in orig:
+    print('ios-only: already present')
+else:
+    old = "IOSOUT = os.environ.get('IOSOUT')   # if set, also build the iOS version (iphoneos metallib + reflection) into that directory"
+    new = old + "\nIOS_ONLY = bool(IOSOUT) and bool(os.environ.get('DM_IOS_ONLY'))   # DM_IOS_ONLY=1: the macOS libraries are never shipped, skip compiling them"
+    assert old in orig
+    orig = orig.replace(old, new, 1)
+    old2 = """    try: MTL.compile('mac', msl, lib)   # MSL identical to one compiled before takes that library (dmsh_mtlcache.py)
+    except subprocess.CalledProcessError as e:
+        if not lay: return 'metal failed', str(e)[:160], None
+        open(msl, 'w').write(plain); lay = None   # the layer entry points are an extra: a library that does not build with them is built without
+        try: MTL.compile('mac', msl, lib)
+        except subprocess.CalledProcessError as e: return 'metal failed', str(e)[:160], None
+    clone(msl, os.path.join(out, key + '_b.metal'))"""
+    new2 = """    if IOS_ONLY:   # DM_IOS_ONLY: no macOS library is shipped; keep the MSL, the cache is keyed by its digest
+        clone(msl, os.path.join(out, key + '_b.metal'))
+    else:
+        try: MTL.compile('mac', msl, lib)   # MSL identical to one compiled before takes that library (dmsh_mtlcache.py)
+        except subprocess.CalledProcessError as e:
+            if not lay: return 'metal failed', str(e)[:160], None
+            open(msl, 'w').write(plain); lay = None   # the layer entry points are an extra: a library that does not build with them is built without
+            try: MTL.compile('mac', msl, lib)
+            except subprocess.CalledProcessError as e: return 'metal failed', str(e)[:160], None
+        clone(msl, os.path.join(out, key + '_b.metal'))"""
+    assert old2 in orig, 'mac compile block did not match: dmsh_build.py changed upstream'
+    orig = orig.replace(old2, new2, 1)
+    p.write_text(orig)
+    print('ios-only: dmsh_build.py patched')
