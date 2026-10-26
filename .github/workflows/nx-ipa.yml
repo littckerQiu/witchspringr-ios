@@ -211,13 +211,6 @@ jobs:
           W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs_min MSL_IOS=/tmp/msl_ios AOC= DM_ENV_FILE=/tmp/baked.env \
             bash dm/ios/tools/build_ipa.sh /tmp/WitchSpringR.ipa 2>&1 | tail -30 || true
           ls -l /tmp/WitchSpringR.ipa 2>/dev/null || echo "no ipa"
-      - name: Sign with the player's certificate
-        env:
-          SIGN_P12: ${{ secrets.SIGN_P12 }}
-          SIGN_PROFILE: ${{ secrets.SIGN_PROFILE }}
-          SIGN_PASSWORD: ${{ secrets.SIGN_PASSWORD }}
-          SIGN_BUNDLE_ID: ${{ secrets.SIGN_BUNDLE_ID }}
-        run: bash nxnative-add/sign_ipa.sh /tmp/WitchSpringR.ipa
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
