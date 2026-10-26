@@ -211,6 +211,24 @@ jobs:
           W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs_min MSL_IOS=/tmp/msl_ios AOC= DM_ENV_FILE=/tmp/baked.env \
             bash dm/ios/tools/build_ipa.sh /tmp/WitchSpringR.ipa 2>&1 | tail -30 || true
           ls -l /tmp/WitchSpringR.ipa 2>/dev/null || echo "no ipa"
+      - name: Sign with the player's certificate
+        env:
+          SIGN_P12: ${{ secrets.SIGN_P12 }}
+          SIGN_PROFILE: ${{ secrets.SIGN_PROFILE }}
+          SIGN_PASSWORD: ${{ secrets.SIGN_PASSWORD }}
+          SIGN_BUNDLE_ID: ${{ secrets.SIGN_BUNDLE_ID }}
+        run: |
+          [ -n "$SIGN_P12" ] || { echo "no signing certificate in the repo secrets: the IPA stays unsigned"; exit 0; }
+          mkdir -p /tmp/sg && cd /tmp/sg
+          printf '%s' "$SIGN_P12" | base64 -d > cert.p12
+          printf '%s' "$SIGN_PROFILE" | base64 -d > profile.mobileprovision
+          printf '%s' "$SIGN_PASSWORD" > pw.txt
+          if [ ! -x /tmp/sg/zsign ]; then
+            git clone --depth 1 https://github.com/zhlynn/zsign.git zsrc && ( cd zsrc/build/linux && make -j4 ) && cp zsrc/bin/zsign .
+          fi
+          ./zsign -k cert.p12 -p "$(cat pw.txt)" -m profile.mobileprovision -b "$SIGN_BUNDLE_ID" -z 1 \
+                  -o /tmp/WitchSpringR-signed.ipa /tmp/WitchSpringR.ipa 2>&1 | tail -6
+          if [ -s /tmp/WitchSpringR-signed.ipa ]; then mv /tmp/WitchSpringR-signed.ipa /tmp/WitchSpringR.ipa; echo "signed: $(ls -l /tmp/WitchSpringR.ipa | awk '{print $5}') bytes"; else echo "signing failed, uploading the unsigned IPA"; fi
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
