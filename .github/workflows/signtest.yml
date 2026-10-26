@@ -7,10 +7,7 @@ jobs:
   t:
     runs-on: ubuntu-latest
     steps:
-      - name: Sign with the player's certificate
+      - name: sign
         env:
           SIGN_P12: ${{ secrets.SIGN_P12 }}
-          SIGN_PROFILE: ${{ secrets.SIGN_PROFILE }}
-          SIGN_PASSWORD: ${{ secrets.SIGN_PASSWORD }}
-          SIGN_BUNDLE_ID: ${{ secrets.SIGN_BUNDLE_ID }}
-        run: bash -c 'echo "p12 bytes: ${#SIGN_P12}, bundle: $SIGN_BUNDLE_ID"'
+        run: echo "bytes ${#SIGN_P12}"
