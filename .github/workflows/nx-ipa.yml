@@ -104,7 +104,7 @@ jobs:
           V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' /tmp/nx/dm/games/$DM_GAME/dmsh_chain.h)
           echo "v=$V" >> $GITHUB_OUTPUT
           echo "chain version: $V"
-      - name: Restore the Metal compile cache (Actions cache: same region, tens of MB/s)
+      - name: Restore the Metal compile cache (Actions cache, same region)
         uses: actions/cache/restore@v4
         with:
           path: |
