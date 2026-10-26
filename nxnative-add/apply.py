@@ -374,8 +374,10 @@ else:
     new = '''    { thr_t *me = pthread_getspecific(g_keythr); if (me) { me->last_svc = num; me->last_lr = regs[30]; me->nsvc++; } }
     { static uint64_t tlo, thi; static int tinit; static long tn;
       if (!tinit) { tinit = 1; const char *e = getenv("DM_TRACE_RANGE"); if (e) sscanf(e, "%lx-%lx", &tlo, &thi); }
-      if (thi > tlo && (num == 0x1a || num == 0x1b || num == 0x1c || num == 0x1d) && tn < 400000) {
-          int hit = 0; for (int i = 0; i < 4; i++) if (regs[i] >= tlo && regs[i] < thi) hit = 1;
+      static int sync_trace = -1; if (sync_trace < 0) sync_trace = getenv("DM_TRACE_SYNC") != NULL;
+      int want_sync = sync_trace && (num == 0x17 || num == 0x18);   // event / sync-object waits: the poll loop on a handle
+      if ((thi > tlo || want_sync) && (num == 0x17 || num == 0x18 || num == 0x1a || num == 0x1b || num == 0x1c || num == 0x1d) && tn < 400000) {
+          int hit = want_sync ? 1 : 0; for (int i = 0; i < 4; i++) if (regs[i] >= tlo && regs[i] < thi) hit = 1;
           if (hit) { thr_t *c = pthread_getspecific(g_keythr);
                      // x30 inside an SDK function says nothing about the game, so walk the guest's frame pointer chain
                      // (x29 -> saved x29 / return address) and print the first few addresses that land in a module.
