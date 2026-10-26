@@ -394,3 +394,57 @@ else:
     assert old in orig, 'trace-range patch did not match: hle_thread.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('trace range: hle_thread.c patched')
+
+# ---- DM_WATCH_DUMP: print a few words of an address on a timer -------------------------------------
+# The device run ends with the main thread waiting for a job whose item the workers never found. Whether the item was ever
+# written into the queue is one line of evidence, and it cannot be recovered from a syscall log: this prints the words at a
+# given address every N ms (comma-separated addr:ms pairs), so "the count stayed 0" and "the count was 1 but nobody took
+# it" are directly distinguishable.
+p = nx / 'dm' / 'host' / 'hle_thread.c'
+orig = p.read_text()
+if 'DM_WATCH_DUMP' in orig:
+    print('watch dump: already present')
+else:
+    anchor = '''// DM_FUTEX_KICK=<ms>: wake every condition-variable waiter on a timer (see the note where it is started)'''
+    assert anchor in orig
+    block = '''// DM_WATCH_DUMP=<hex addr>:<ms>[,<hex addr>:<ms>...]: print 32 bytes at each address on its own timer
+static void *watch_dump_thread(void *arg) {
+    struct wd { uint64_t addr; int ms; } list[4]; int n = 0;
+    char *s = strdup((const char *)arg);
+    for (char *t = strtok(s, ","); t && n < 4; t = strtok(NULL, ",")) {
+        uint64_t a = 0; int ms = 0;
+        if (sscanf(t, "%lx:%d", &a, &ms) == 2 && ms > 0) { list[n].addr = a; list[n].ms = ms; n++; }
+    }
+    free(s);
+    if (!n) return NULL;
+    int tick = list[0].ms; for (int i = 1; i < n; i++) if (list[i].ms < tick) tick = list[i].ms;
+    int j = 0;
+    for (;;) {
+        usleep((useconds_t)tick * 1000);
+        for (int i = 0; i < n; i++) if (j % (list[i].ms / tick ? list[i].ms / tick : 1) == 0) {
+            uint8_t raw[32]; vm_size_t g = 0;
+            if (!vm_read_overwrite(mach_task_self(), (vm_address_t)list[i].addr, sizeof raw, (vm_address_t)raw, &g)) {
+                char hx[160]; int q = 0;
+                for (int k = 0; k < 32; k += 4) q += snprintf(hx + q, sizeof hx - q, "%08x ", *(uint32_t *)(raw + k));
+                LOG("[wd] %#llx: %s", (unsigned long long)list[i].addr, hx);
+            }
+        }
+        j++;
+    }
+    return NULL;
+}
+static void watch_dump_start(void) {
+    static int started; const char *e = getenv("DM_WATCH_DUMP");
+    if (started || !e) return; started = 1;
+    pthread_t th;
+    if (!pthread_create(&th, NULL, watch_dump_thread, (void *)e)) { pthread_detach(th); LOG("DM_WATCH_DUMP: %s", e); }
+}
+'''
+    orig = orig.replace(anchor, block + anchor, 1)
+    old = '''        kick_start();   // DM_FUTEX_KICK: a timer that wakes condition-variable waiters (defined above this switch)'''
+    new = '''        kick_start();   // DM_FUTEX_KICK: a timer that wakes condition-variable waiters (defined above this switch)
+        watch_dump_start();   // DM_WATCH_DUMP: a timer that prints the words at an address'''
+    assert old in orig
+    orig = orig.replace(old, new, 1)
+    p.write_text(orig)
+    print('watch dump: hle_thread.c patched')
