@@ -137,7 +137,7 @@ jobs:
           set +e                                   # dmsh_build exits non-zero for a single failed shader; one is expected
           cd /tmp/nx
           export PATH="/tmp/spvc/b:$PATH"
-          export IOSOUT=/tmp/msl_ios
+          export IOSOUT=/tmp/msl_ios DM_IOS_ONLY=1
           IOSOUT=/tmp/msl_ios /tmp/venv/bin/python dm/gfx/tools/dmsh_build.py /tmp/pkg /tmp/msl 2>&1 | tail -30
           n=$(ls /tmp/msl_ios/b-* 2>/dev/null | grep -c "_b.metallib$")
           echo "metallibs: $n"
