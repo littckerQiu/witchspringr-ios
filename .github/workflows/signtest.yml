@@ -7,7 +7,7 @@ jobs:
   t:
     runs-on: ubuntu-latest
     steps:
-      - name: sign
+      - name: Sign with the player's certificate
         env:
           SIGN_P12: ${{ secrets.SIGN_P12 }}
         run: echo "bytes ${#SIGN_P12}"
