@@ -147,3 +147,12 @@ So the manager owned a 1 GB range that begins 62 MB in, overlapping the space VA
 Unity's pools: two live objects can end up on one address. That fits the job-queue stall exactly (the workers wait on one
 condition variable while the scheduler signals another, 0x30 apart in the same structure). Both are cut now; verified in
 the product (`cuts 2`, `0x134778 087ca052`, `0x13480c 097ca052`).
+
+### Where the workers actually sleep
+
+`fdis.py main 0x386370` shows `b nn::os::AcquireSemaphore`, and the job worker's loop (`main+0x6428d0`, entered from the
+thread entry `main+0x6417f0`) reaches it at `main+0x642da0`. On Switch `nn::os::Semaphore` is not a kernel object: the
+SDK builds it from the futex syscalls, so a release is not necessarily `svcSignalProcessWideKey` and a log of signals alone
+never showed one. That is why `DM_SIGLOG` reported "the workers' key is never signalled" while the host dump showed them
+in a condition wait: the wait is the semaphore's, and the release path still has to be found. `tools/trace_addr.py` (in the
+workspace) reads a `DM_THR=1` log and lists every syscall that touches one address, which is how the next run is analysed.
