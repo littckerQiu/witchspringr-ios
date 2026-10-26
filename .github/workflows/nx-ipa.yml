@@ -212,7 +212,9 @@ jobs:
             bash dm/ios/tools/build_ipa.sh /tmp/WitchSpringR.ipa 2>&1 | tail -30 || true
           ls -l /tmp/WitchSpringR.ipa 2>/dev/null || echo "no ipa"
       - name: signing placeholder
-        run: echo 'signing step goes here'
+        env:
+          SIGN_P12: ${{ secrets.SIGN_P12 }}
+        run: echo "p12 bytes ${#SIGN_P12}"
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
