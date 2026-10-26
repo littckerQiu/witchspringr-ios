@@ -156,3 +156,28 @@ SDK builds it from the futex syscalls, so a release is not necessarily `svcSigna
 never showed one. That is why `DM_SIGLOG` reported "the workers' key is never signalled" while the host dump showed them
 in a condition wait: the wait is the semaphore's, and the release path still has to be found. `tools/trace_addr.py` (in the
 workspace) reads a `DM_THR=1` log and lists every syscall that touches one address, which is how the next run is analysed.
+
+## The last frame's handshake
+
+A `DM_THR=1` trace of a hung run (2026-10-26) reads, in order:
+
+    115676  0001 signals the worker pool (0x704031c060) with wake-all
+    115712  0001 signals it again
+    115713  0x1004 wakes, unlocks, tries to take work
+    115716  0x1013..0x1007 (all 15 others) wake, find nothing, sleep on 0x704031c060 again
+    115741  0001 waits on 0x704031a6b0 (a job fence); 0x1015 (Loading.AsyncRead) signals it
+    115764  0001 waits on 0x704031c450 - the completion of the job whose group carries the name
+            "IJobExtensions/Job Construct#1" - and nothing signals it again
+
+So the pool is woken and every worker finds an empty queue: the item the main thread is waiting for was never in it (or went
+somewhere else). The graphics side is not at fault: the same run reports `main fence submitted 211 / completed 211` and
+`present queue in 211 / done 211`, and the 23k lock/signal pairs between the main thread and `UnityGfxDeviceWorker`
+(0x704031c26c / 0x704031c270) are the ordinary per-frame command handshake (~110 per frame over 211 frames).
+
+Instruments that were added to settle it, all verified to compile before shipping:
+- `DM_TRACE_RANGE=<lo>-<hi>`: every futex syscall touching a range, with the guest's frame-pointer chain (a return address
+  inside the SDK names nothing);
+- `DM_TRACE_SYNC=1`: the same for `svcWaitSynchronization` (the 9 zero-timeout handle polls the main thread makes while it
+  starts threads);
+- `DM_WATCH_DUMP=<addr>:<ms>`: prints 32 bytes at an address on a timer, which distinguishes "the count never left 0"
+  (never enqueued) from "the count is 1 and stays" (enqueued, never taken).
