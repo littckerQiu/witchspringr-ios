@@ -207,7 +207,7 @@ jobs:
           # Everything the freeze needs is baked: the stall dump, handheld rendering, and the three tracers. The trace
           # range is "auto" because the guest heap base moved between builds (0x7080... then 0x7040...): the host picks
           # the object that many threads wait on, which is the job pool.
-          printf 'DM_WATCH_STALL=8\nDM_OPMODE=0\nDM_DUMP_WAITBIG=1\nDM_TRACE_RANGE=auto\nDM_TRACE_SYNC=1\nDM_WATCH_DUMP=0x0:0\n' > /tmp/baked.env
+          printf 'DM_WATCH_STALL=8\nDM_OPMODE=0\nDM_DUMP_WAITBIG=1\nDM_TRACE_RANGE=auto\nDM_TRACE_SYNC=1\nDM_SAMPLE=20\n' > /tmp/baked.env
           W=/tmp/w GAME=$DM_GAME PATCHED=/tmp/prod ROMFS=/tmp/romfs_min MSL_IOS=/tmp/msl_ios AOC= DM_ENV_FILE=/tmp/baked.env \
             bash dm/ios/tools/build_ipa.sh /tmp/WitchSpringR.ipa 2>&1 | tail -30 || true
           ls -l /tmp/WitchSpringR.ipa 2>/dev/null || echo "no ipa"
