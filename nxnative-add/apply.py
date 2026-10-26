@@ -376,10 +376,19 @@ else:
       if (!tinit) { tinit = 1; const char *e = getenv("DM_TRACE_RANGE"); if (e) sscanf(e, "%lx-%lx", &tlo, &thi); }
       if (thi > tlo && (num == 0x1a || num == 0x1b || num == 0x1c || num == 0x1d) && tn < 400000) {
           int hit = 0; for (int i = 0; i < 4; i++) if (regs[i] >= tlo && regs[i] < thi) hit = 1;
-          if (hit) { module_t *m = module_of((void *)regs[30]); thr_t *c = pthread_getspecific(g_keythr);
-                     LOG("[tr] t%#x svc %#x x0=%#llx x1=%#llx x2=%#llx lr=%s+%#llx", c ? c->handle : 0, num,
-                         (unsigned long long)regs[0], (unsigned long long)regs[1], (unsigned long long)regs[2],
-                         m ? m->name : "?", (unsigned long long)(m ? regs[30] - (uint64_t)m->base : regs[30])); tn++; } } }'''
+          if (hit) { thr_t *c = pthread_getspecific(g_keythr);
+                     // x30 inside an SDK function says nothing about the game, so walk the guest's frame pointer chain
+                     // (x29 -> saved x29 / return address) and print the first few addresses that land in a module.
+                     char bt[192]; int q = 0; uint64_t fp = regs[29];
+                     for (int d = 0; d < 6 && fp && q < (int)sizeof bt - 32; d++) {
+                         uint64_t w[2]; vm_size_t g4 = 0;
+                         if (vm_read_overwrite(mach_task_self(), (vm_address_t)fp, sizeof w, (vm_address_t)w, &g4) || g4 != sizeof w) break;
+                         module_t *mm = module_of((void *)w[1]);
+                         if (mm) q += snprintf(bt + q, sizeof bt - q, " %s+%#llx", mm->name, (unsigned long long)(w[1] - (uint64_t)mm->base));
+                         if (w[0] <= fp) break;
+                         fp = w[0]; }
+                     LOG("[tr] t%#x svc %#x x0=%#llx x1=%#llx x2=%#llx bt:%s", c ? c->handle : 0, num,
+                         (unsigned long long)regs[0], (unsigned long long)regs[1], (unsigned long long)regs[2], bt); tn++; } } }'''
     assert old in orig, 'trace-range patch did not match: hle_thread.c changed upstream'
     p.write_text(orig.replace(old, new, 1))
     print('trace range: hle_thread.c patched')
