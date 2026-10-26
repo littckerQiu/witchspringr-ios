@@ -484,3 +484,60 @@ else:
     orig = orig[:a] + ios_only + orig[b:]
     p.write_text(orig)
     print('ios-only: dmsh_build.py patched')
+
+# ---- DM_SAMPLE: a poor man's profiler for a spinning thread -----------------------------------------
+# A live lock shows up as a runaway PC: suspend each running guest thread on a timer, read its PC and count the page of
+# code it sits in, then print the hottest buckets. Nothing in the guest is modified, so it can be left on.
+p = nx / 'dm' / 'host' / 'hle_thread.c'
+orig = p.read_text()
+if 'sample_start' in orig:
+    print('sampler: already present')
+else:
+    anchor = '''// DM_FUTEX_KICK=<ms>: wake every condition-variable waiter on a timer (see the note where it is started)'''
+    assert anchor in orig
+    block = '''// DM_SAMPLE=<ms>: where are the running guest threads spending their time (see the note where it is started)
+static void *sample_thread(void *arg) {
+    int ms = (int)(intptr_t)arg; static struct { uint64_t key; int n; } b[128]; int nb = 0; long ticks = 0;
+    for (;;) {
+        usleep((useconds_t)ms * 1000);
+        for (thr_t *t = g_all; t; t = t->all) {
+            if (t->wkind != 0 || t->exited || !t->mport || t->host_owned) continue;   // only threads running guest code
+            if (thread_suspend(t->mport) != KERN_SUCCESS) continue;
+            arm_thread_state64_t st; mach_msg_type_number_t n = ARM_THREAD_STATE64_COUNT;
+            if (thread_get_state(t->mport, ARM_THREAD_STATE64, (thread_state_t)&st, &n) == KERN_SUCCESS) {
+                uint64_t pc = __darwin_arm_thread_state64_get_pc(st);
+                module_t *m = module_of((void *)pc);
+                if (m) { uint64_t key = (pc & ~0x3full); int i = 0;
+                         for (; i < nb; i++) if (b[i].key == key) { b[i].n++; break; }
+                         if (i == nb && nb < 128) { b[nb].key = key; b[nb].n = 1; nb++; } }
+            }
+            thread_resume(t->mport);
+        }
+        if (++ticks % (2000 / (ms > 0 ? ms : 20)) == 0) {   // every ~2 s
+            for (int k = 0; k < 4; k++) {                       // print the 4 hottest buckets
+                int best = -1; for (int i = 0; i < nb; i++) if (b[i].n && (best < 0 || b[i].n > b[best].n)) best = i;
+                if (best < 0) break;
+                module_t *m = module_of((void *)b[best].key);
+                LOG("[pc] %s+%#llx  %d samples", m ? m->name : "?", (unsigned long long)(b[best].key - (m ? (uint64_t)m->base : 0)), b[best].n);
+                b[best].n = 0;
+            }
+            nb = 0;
+        }
+    }
+    return NULL;
+}
+static void sample_start(void) {
+    static int started; const char *e = getenv("DM_SAMPLE");
+    if (started || !e) return; started = 1;
+    int ms = atoi(e); if (ms < 5) ms = 5; if (ms > 200) ms = 200;
+    pthread_t th; if (!pthread_create(&th, NULL, sample_thread, (void *)(intptr_t)ms)) { pthread_detach(th); LOG("DM_SAMPLE: sampling every %d ms", ms); }
+}
+'''
+    orig = orig.replace(anchor, block + anchor, 1)
+    old = '''        watch_dump_start();   // DM_WATCH_DUMP: a timer that prints the words at an address'''
+    new = '''        watch_dump_start();   // DM_WATCH_DUMP: a timer that prints the words at an address
+        sample_start();       // DM_SAMPLE: a poor man's profiler'''
+    assert old in orig
+    orig = orig.replace(old, new, 1)
+    p.write_text(orig)
+    print('sampler: hle_thread.c patched')
