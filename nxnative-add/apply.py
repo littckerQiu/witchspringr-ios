@@ -372,8 +372,16 @@ if 'DM_TRACE_RANGE' in orig:
 else:
     old = '''    { thr_t *me = pthread_getspecific(g_keythr); if (me) { me->last_svc = num; me->last_lr = regs[30]; me->nsvc++; } }'''
     new = '''    { thr_t *me = pthread_getspecific(g_keythr); if (me) { me->last_svc = num; me->last_lr = regs[30]; me->nsvc++; } }
-    { static uint64_t tlo, thi; static int tinit; static long tn;
-      if (!tinit) { tinit = 1; const char *e = getenv("DM_TRACE_RANGE"); if (e) sscanf(e, "%lx-%lx", &tlo, &thi); }
+    { static uint64_t tlo, thi; static int tinit, auto_range; static long tn;
+      if (!tinit) { tinit = 1; const char *e = getenv("DM_TRACE_RANGE");
+                    if (e && !strcmp(e, "auto")) auto_range = 1;          // pick the address from the first busy object
+                    else if (e) sscanf(e, "%lx-%lx", &tlo, &thi); }
+      if (auto_range && thi <= tlo && num == 0x1c) {   // the pool's object is the one many threads wait on
+          int nw = 0; pthread_mutex_lock(&G);
+          for (thr_t *w = g_wait; w; w = w->next) if (w->wkind == 2 && w->wkey == regs[1]) nw++;
+          pthread_mutex_unlock(&G);
+          if (nw >= 8) { tlo = regs[1] & ~0xfffull; thi = tlo + 0x1000;
+                         LOG("[tr] auto range %#llx-%#llx (%d waiters on key %#llx)", (unsigned long long)tlo, (unsigned long long)thi, nw, (unsigned long long)regs[1]); } }
       static int sync_trace = -1; if (sync_trace < 0) sync_trace = getenv("DM_TRACE_SYNC") != NULL;
       int want_sync = sync_trace && (num == 0x17 || num == 0x18);   // event / sync-object waits: the poll loop on a handle
       if ((thi > tlo || want_sync) && (num == 0x17 || num == 0x18 || num == 0x1a || num == 0x1b || num == 0x1c || num == 0x1d) && tn < 400000) {
