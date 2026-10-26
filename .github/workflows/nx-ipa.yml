@@ -98,11 +98,29 @@ jobs:
       # cache is trimmed to the iOS set only.
       - name: Shader caches (disabled, a full rebuild is faster than the 8.7 GB restore)
         run: echo "compiling every shader; no cache restore"
+      - name: Chain version (cache key)
+        id: chain
+        run: |
+          V=$(sed -n 's/^#define DMSH_CHAIN "\(.*\)"/\1/p' /tmp/nx/dm/games/$DM_GAME/dmsh_chain.h)
+          echo "v=$V" >> $GITHUB_OUTPUT
+          echo "chain version: $V"
+      - name: Restore the Metal compile cache (Actions cache: same region, tens of MB/s)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/msl
+            /tmp/msl_ios
+          key: dmsh-msl-${{ steps.chain.outputs.v }}
+          restore-keys: dmsh-msl-
+      - name: Prefill status
+        run: |
+          du -sm /tmp/msl /tmp/msl_ios 2>/dev/null || echo "nothing restored"
       - name: Prefill the Metal compile cache (from the last build's archive, if any)
         env:
           GH_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: |
           set +e
+          [ -d /tmp/msl/b-* ] && { echo "already restored by Actions cache"; exit 0; }
           mkdir -p /tmp/pf
           gh release download data --repo littckerQiu/witchspringr-data --pattern 'shaders-cache-*.zip' --dir /tmp/pf || { echo "no prefill archive yet"; exit 0; }
           mkdir -p /tmp/pf/mac /tmp/pf/ios
@@ -140,6 +158,14 @@ jobs:
           /tmp/venv/bin/python dm/gfx/tools/cb_extent.py /tmp/msl/b-$V dm/games/$DM_GAME/cb_extent.tsv 2>&1 | tail -4 || echo "cb_extent failed (the host copies whole bindings)"
           wc -l dm/games/$DM_GAME/c1_full.tsv dm/games/$DM_GAME/cb_extent.tsv 2>/dev/null
           exit 0
+      - name: Save the Metal compile cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            /tmp/msl
+            /tmp/msl_ios
+          key: dmsh-msl-${{ steps.chain.outputs.v }}
       - name: Archive the Metal libraries for the next build
         if: always()
         env:
