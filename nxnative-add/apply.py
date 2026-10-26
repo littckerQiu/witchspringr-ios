@@ -359,3 +359,27 @@ else:
                             fprintf(stderr, "[dm]   %#x waited-for object, %d bytes from %#llx: %s\\n", t->handle, rawsz, (t->waddr & ~0xfull) + base, hx); } }''')
     p.write_text(orig)
     print('big wait dump: hle_thread.c patched')
+
+# ---- DM_TRACE_RANGE: name the code on both sides of a synchronisation loop ---------------------------
+# The last device run showed the main thread and the graphics worker trading 23k lock/signal/wait syscalls over one
+# structure (0x704031c2xx) while the main thread's own completion wait was signalled exactly once and never again. A
+# signal-only log cannot say which code is in that loop, so this logs every futex syscall that touches an address range
+# together with the guest return address (module+offset), which is what the disassembly needs.
+p = nx / 'dm' / 'host' / 'hle_thread.c'
+orig = p.read_text()
+if 'DM_TRACE_RANGE' in orig:
+    print('trace range: already present')
+else:
+    old = '''    { thr_t *me = pthread_getspecific(g_keythr); if (me) { me->last_svc = num; me->last_lr = regs[30]; me->nsvc++; } }'''
+    new = '''    { thr_t *me = pthread_getspecific(g_keythr); if (me) { me->last_svc = num; me->last_lr = regs[30]; me->nsvc++; } }
+    { static uint64_t tlo, thi; static int tinit; static long tn;
+      if (!tinit) { tinit = 1; const char *e = getenv("DM_TRACE_RANGE"); if (e) sscanf(e, "%lx-%lx", &tlo, &thi); }
+      if (thi > tlo && (num == 0x1a || num == 0x1b || num == 0x1c || num == 0x1d) && tn < 400000) {
+          int hit = 0; for (int i = 0; i < 4; i++) if (regs[i] >= tlo && regs[i] < thi) hit = 1;
+          if (hit) { module_t *m = module_of((void *)regs[30]); thr_t *c = pthread_getspecific(g_keythr);
+                     LOG("[tr] t%#x svc %#x x0=%#llx x1=%#llx x2=%#llx lr=%s+%#llx", c ? c->handle : 0, num,
+                         (unsigned long long)regs[0], (unsigned long long)regs[1], (unsigned long long)regs[2],
+                         m ? m->name : "?", (unsigned long long)(m ? regs[30] - (uint64_t)m->base : regs[30])); tn++; } } }'''
+    assert old in orig, 'trace-range patch did not match: hle_thread.c changed upstream'
+    p.write_text(orig.replace(old, new, 1))
+    print('trace range: hle_thread.c patched')
