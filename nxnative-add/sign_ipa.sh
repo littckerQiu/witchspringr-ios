@@ -32,8 +32,10 @@ if [ ! -x "$WORK/zsign" ]; then
 fi
 
 OUT="${IPA%.ipa}-signed.ipa"
-"$WORK/zsign" -k cert.p12 -p "$(cat pw.txt)" -m profile.mobileprovision \
-             -b "${SIGN_BUNDLE_ID:-}" -z 1 -o "$OUT" "$IPA" 2>&1 | tail -8
+BUNDLE_ARGS=()
+[ -n "${SIGN_BUNDLE_ID:-}" ] && BUNDLE_ARGS=(-b "$SIGN_BUNDLE_ID")   # the profile's App ID, when it is not a wildcard
+"$WORK/zsign" -k cert.p12 -p "$(cat pw.txt)" -m profile.mobileprovision "${BUNDLE_ARGS[@]}" \
+             -z 1 -o "$OUT" "$IPA" 2>&1 | tail -8
 
 if [ -s "$OUT" ]; then
     mv "$OUT" "$IPA"
